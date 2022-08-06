@@ -1,9 +1,11 @@
-name: Generate Documentation
+name: Generate and Publish Documentation
 
-on: [push]
+on:
+  push:
+    branches: ["main"]
 
 jobs:
-  build-and-document:
+  generate-pages:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,10 +28,29 @@ jobs:
       run: cargo test --verbose
 
     - name: Generate Documentation
-      run: cargo doc --no-deps
-
-    - name: Publish Documentation
       run: |
-        rm -rf ./docs
+        cargo doc --no-deps
         echo "<meta http-equiv=\"refresh\" content=\"0; url=build_wheel\">" > target/doc/index.html
-        cp -r target/doc ./docs
+
+    - name: Upload Pages Artifact
+      uses: actions/upload-pages-artifacts@v1
+      with:
+        path: './target/doc/'
+
+  deploy-pages:
+    needs: generate-pages
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy To Pages
+        id: deployment
+        uses: actions/deploy-pages@v1
