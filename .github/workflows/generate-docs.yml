@@ -30,7 +30,7 @@ jobs:
     - name: Generate Documentation
       run: |
         cargo doc --no-deps
-        echo "<meta http-equiv=\"refresh\" content=\"0; url=build_wheel\">" > target/doc/index.html
+        echo "<meta http-equiv=\"refresh\" content=\"0; url=demo_app\">" > target/doc/index.html
 
     - name: Upload Pages Artifact
       uses: actions/upload-pages-artifact@v1
