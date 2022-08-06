@@ -1,0 +1,35 @@
+name: Generate Documentation
+
+on: [push]
+
+jobs:
+  build-and-document:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build
+      run: cargo build --verbose
+
+    - name: Test
+      run: cargo test --verbose
+
+    - name: Generate Documentation
+      run: cargo doc --no-deps
+
+    - name: Publish Documentation
+      run: |
+        rm -rf ./docs
+        echo "<meta http-equiv=\"refresh\" content=\"0; url=build_wheel\">" > target/doc/index.html
+        cp -r target/doc ./docs
