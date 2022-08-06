@@ -33,7 +33,7 @@ jobs:
         echo "<meta http-equiv=\"refresh\" content=\"0; url=build_wheel\">" > target/doc/index.html
 
     - name: Upload Pages Artifact
-      uses: actions/upload-pages-artifacts@v1
+      uses: actions/upload-pages-artifact@v1
       with:
         path: './target/doc/'
 
