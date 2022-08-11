@@ -1,6 +1,6 @@
 # Rendering Demo
 
-[![CI Status](https://github.com/NMGardiner/rendering-demo/actions/workflows/generate-docs.yml/badge.svg)](https://github.com/NMGardiner/rendering-demo/actions)
+[![CI Status](https://github.com/NMGardiner/rendering-demo/actions/workflows/generate-docs.yml/badge.svg)](https://nmgardiner.github.io/rendering-demo/)
 
 ## Table of Contents
 
