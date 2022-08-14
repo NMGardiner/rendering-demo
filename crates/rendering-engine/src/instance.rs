@@ -76,7 +76,7 @@ impl Instance {
     ///
     /// # Errors
     ///
-    /// This function can panic if `ash` fails to create the entry, instance, or debug messenger,
+    /// This function can error if `ash` fails to create the entry, instance, or debug messenger,
     /// if `ash` fails to enumerate the supported instance layers/extensions, or if `ash_window`
     /// fails to enumerate the required window extensions.
     pub fn new(builder: InstanceBuilder) -> Result<Self, Box<dyn Error>> {
@@ -191,6 +191,14 @@ impl Instance {
             instance_handle: instance,
             debug_messenger,
         })
+    }
+
+    pub fn entry(&self) -> &ash::Entry {
+        &self.entry
+    }
+
+    pub fn handle(&self) -> &ash::Instance {
+        &self.instance_handle
     }
 }
 

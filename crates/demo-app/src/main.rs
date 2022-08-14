@@ -7,6 +7,11 @@ use winit::{
     window::WindowBuilder,
 };
 
+struct Renderer {
+    surface: Surface,
+    instance: Instance,
+}
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
 
@@ -28,6 +33,11 @@ fn main() {
         .build()
         .unwrap();
 
+    let surface = Surface::new(&window, &instance).unwrap();
+
+    // Group the renderer components to drop them all at once.
+    let renderer = Renderer { surface, instance };
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -41,8 +51,8 @@ fn main() {
                 if event == WindowEvent::CloseRequested {
                     *control_flow = ControlFlow::Exit;
 
-                    // Drop the renderer instance.
-                    let _ = &instance;
+                    // Drop the renderer.
+                    let _ = &renderer;
                 }
             }
             _ => (),
