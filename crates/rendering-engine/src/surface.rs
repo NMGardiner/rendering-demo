@@ -15,7 +15,7 @@ impl Surface {
     ///
     /// # Errors
     ///
-    /// This function can error
+    /// This function can error if `ash_window` fails to create the surface.
     pub fn new(
         window: &dyn HasRawWindowHandle,
         instance: &Instance,
@@ -33,6 +33,14 @@ impl Surface {
             surface_loader: surface_loader,
             surface_handle: surface,
         })
+    }
+
+    pub fn handle(&self) -> &ash::vk::SurfaceKHR {
+        &self.surface_handle
+    }
+
+    pub fn loader(&self) -> &ash::extensions::khr::Surface {
+        &self.surface_loader
     }
 }
 

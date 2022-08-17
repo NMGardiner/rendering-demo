@@ -8,6 +8,7 @@ use winit::{
 };
 
 struct Renderer {
+    device: Device,
     surface: Surface,
     instance: Instance,
 }
@@ -35,8 +36,14 @@ fn main() {
 
     let surface = Surface::new(&window, &instance).unwrap();
 
+    let device = Device::new(&instance, Some(&surface)).unwrap();
+
     // Group the renderer components to drop them all at once.
-    let renderer = Renderer { surface, instance };
+    let renderer = Renderer {
+        device,
+        surface,
+        instance,
+    };
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
