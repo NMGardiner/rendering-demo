@@ -5,6 +5,7 @@ use crate::*;
 /// A logical device representing a single GPU within the system.
 pub struct Device {
     device_handle: ash::Device,
+    physical_device_handle: ash::vk::PhysicalDevice,
     graphics_queue: ash::vk::Queue,
     graphics_family_index: u32,
 }
@@ -139,6 +140,7 @@ impl Device {
 
         Ok(Self {
             device_handle: device,
+            physical_device_handle: physical_device,
             graphics_queue,
             graphics_family_index,
         })
@@ -146,6 +148,10 @@ impl Device {
 
     pub fn handle(&self) -> &ash::Device {
         &self.device_handle
+    }
+
+    pub fn physical_device_handle(&self) -> &ash::vk::PhysicalDevice {
+        &self.physical_device_handle
     }
 
     pub fn graphics_queue(&self) -> &ash::vk::Queue {

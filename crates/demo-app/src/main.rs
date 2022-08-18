@@ -8,6 +8,7 @@ use winit::{
 };
 
 struct Renderer {
+    swapchain: Swapchain,
     device: Device,
     surface: Surface,
     instance: Instance,
@@ -38,8 +39,18 @@ fn main() {
 
     let device = Device::new(&instance, Some(&surface)).unwrap();
 
+    let swapchain = Swapchain::new(
+        (window.inner_size().width, window.inner_size().height),
+        &instance,
+        &surface,
+        &device,
+        None,
+    )
+    .unwrap();
+
     // Group the renderer components to drop them all at once.
     let renderer = Renderer {
+        swapchain,
         device,
         surface,
         instance,
@@ -60,6 +71,8 @@ fn main() {
 
                     // Drop the renderer.
                     let _ = &renderer;
+
+                    renderer.swapchain.destroy(&renderer.device);
                 }
             }
             _ => (),
