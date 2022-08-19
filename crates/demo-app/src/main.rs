@@ -7,7 +7,10 @@ use winit::{
     window::WindowBuilder,
 };
 
+const MAX_FRAMES_IN_FLIGHT: usize = 2;
+
 struct Renderer {
+    frames_in_flight: Vec<FrameResources>,
     swapchain: Swapchain,
     device: Device,
     surface: Surface,
@@ -48,8 +51,14 @@ fn main() {
     )
     .unwrap();
 
+    let mut frames_in_flight: Vec<FrameResources> = vec![];
+    for _i in 0..MAX_FRAMES_IN_FLIGHT {
+        frames_in_flight.push(FrameResources::new(&device).unwrap());
+    }
+
     // Group the renderer components to drop them all at once.
     let renderer = Renderer {
+        frames_in_flight,
         swapchain,
         device,
         surface,
@@ -71,6 +80,10 @@ fn main() {
 
                     // Drop the renderer.
                     let _ = &renderer;
+
+                    for frame in renderer.frames_in_flight.iter() {
+                        frame.destroy(&renderer.device);
+                    }
 
                     renderer.swapchain.destroy(&renderer.device);
                 }

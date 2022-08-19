@@ -1,6 +1,9 @@
 mod device;
 pub use device::*;
 
+mod frame_resources;
+pub use frame_resources::*;
+
 mod instance;
 pub use instance::*;
 
