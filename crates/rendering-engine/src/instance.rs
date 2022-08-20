@@ -174,8 +174,6 @@ impl Instance {
 
         let instance = unsafe { entry.create_instance(&instance_info, None)? };
 
-        log::debug!("Initialised instance.");
-
         let debug_messenger = if builder.enable_validation_layers {
             Some(DebugMessenger::new(
                 &entry,
@@ -207,8 +205,6 @@ impl Drop for Instance {
         unsafe {
             self.debug_messenger = None;
             self.instance_handle.destroy_instance(None);
-
-            log::debug!("Destroyed instance.");
         }
     }
 }
@@ -293,8 +289,6 @@ impl DebugMessenger {
         let debug_messenger =
             unsafe { debug_loader.create_debug_utils_messenger(create_info, None)? };
 
-        log::debug!("Initialised debug messenger.");
-
         Ok(Self {
             debug_loader,
             debug_messenger,
@@ -307,8 +301,6 @@ impl Drop for DebugMessenger {
         unsafe {
             self.debug_loader
                 .destroy_debug_utils_messenger(self.debug_messenger, None);
-
-            log::debug!("Destroyed debug messenger.");
         }
     }
 }

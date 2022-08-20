@@ -136,7 +136,15 @@ impl Device {
         // TODO: Should the application be fetching queues instead of doing it here?
         let graphics_queue = unsafe { device.get_device_queue(graphics_family_index, 0) };
 
-        log::debug!("Initialised device.");
+        let device_properties = unsafe {
+            instance
+                .handle()
+                .get_physical_device_properties(physical_device)
+        };
+
+        let device_name = unsafe { CStr::from_ptr(device_properties.device_name.as_ptr()) };
+
+        log::info!("Selected device: {}", device_name.to_str()?);
 
         Ok(Self {
             device_handle: device,
@@ -167,8 +175,6 @@ impl Drop for Device {
     fn drop(&mut self) {
         unsafe {
             self.device_handle.destroy_device(None);
-
-            log::debug!("Destroyed device.");
         }
     }
 }

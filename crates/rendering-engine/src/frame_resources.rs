@@ -2,8 +2,8 @@ use std::error::Error;
 
 use crate::*;
 
-/// An object storing the various resources (semaphores, command buffers etc) for
-/// a given frame-in-flight.
+/// An object storing the various resources (semaphores, command buffer etc) for
+/// a single frame-in-flight.
 pub struct FrameResources {
     command_pool: ash::vk::CommandPool,
     command_buffer: ash::vk::CommandBuffer,
@@ -11,6 +11,8 @@ pub struct FrameResources {
     image_acquired_semaphore: ash::vk::Semaphore,
     render_finished_semaphore: ash::vk::Semaphore,
     render_finished_fence: ash::vk::Fence,
+
+    deferred_deletion_queue: Vec<Box<dyn Destroy>>,
 }
 
 impl FrameResources {
@@ -55,16 +57,20 @@ impl FrameResources {
             )?
         };
 
-        log::debug!("Initialise frame resources.");
-
         Ok(Self {
-            command_pool: command_pool,
-            command_buffer: command_buffer,
+            command_pool,
+            command_buffer,
 
-            image_acquired_semaphore: image_acquired_semaphore,
-            render_finished_semaphore: render_finished_semaphore,
-            render_finished_fence: render_finished_fence,
+            image_acquired_semaphore,
+            render_finished_semaphore,
+            render_finished_fence,
+
+            deferred_deletion_queue: vec![],
         })
+    }
+
+    pub fn get_command_buffer(&self) -> &ash::vk::CommandBuffer {
+        &self.command_buffer
     }
 
     pub fn begin_command_buffer(
@@ -82,6 +88,18 @@ impl FrameResources {
 
     pub fn end_command_buffer(&self, device: &Device) -> Result<(), Box<dyn Error>> {
         unsafe { Ok(device.handle().end_command_buffer(self.command_buffer)?) }
+    }
+
+    pub fn get_image_acquired_semaphore(&self) -> &ash::vk::Semaphore {
+        &self.image_acquired_semaphore
+    }
+
+    pub fn get_render_finished_semaphore(&self) -> &ash::vk::Semaphore {
+        &self.render_finished_semaphore
+    }
+
+    pub fn get_render_finished_fence(&self) -> &ash::vk::Fence {
+        &self.render_finished_fence
     }
 
     pub fn await_render_finished_fence(&self, device: &Device) -> Result<(), Box<dyn Error>> {
@@ -110,6 +128,22 @@ impl FrameResources {
             )?)
         }
     }
+
+    /// Consume a destructible object, and add it to this frame's deferred deletion queue.
+    /// Call [`FrameResources::process_deferred_deletion_queue`] when this frame is re-used to destroy
+    /// the stored objects.
+    pub fn defer_object_deletion<Type: Destroy + 'static>(&mut self, object: Type) {
+        self.deferred_deletion_queue.push(Box::new(object));
+    }
+
+    /// Calls [`Destroy::destroy`] on each stored object, and clears the deletion queue.
+    pub fn process_deferred_deletion_queue(&mut self, device: &Device) {
+        for object in self.deferred_deletion_queue.iter() {
+            object.destroy(device);
+        }
+
+        self.deferred_deletion_queue.clear();
+    }
 }
 
 impl Destroy for FrameResources {
@@ -131,7 +165,5 @@ impl Destroy for FrameResources {
                 .handle()
                 .destroy_command_pool(self.command_pool, None);
         }
-
-        log::debug!("Destroyed frame resources.");
     }
 }

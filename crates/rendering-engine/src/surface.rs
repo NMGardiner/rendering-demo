@@ -27,10 +27,8 @@ impl Surface {
             ash_window::create_surface(instance.entry(), instance.handle(), window, None)?
         };
 
-        log::debug!("Initialised surface.");
-
         Ok(Self {
-            surface_loader: surface_loader,
+            surface_loader,
             surface_handle: surface,
         })
     }
@@ -49,8 +47,6 @@ impl Drop for Surface {
         unsafe {
             self.surface_loader
                 .destroy_surface(self.surface_handle, None);
-
-            log::debug!("Destroyed surface.");
         }
     }
 }

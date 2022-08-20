@@ -145,8 +145,6 @@ impl Swapchain {
             swapchain_image_views.push(image_view);
         }
 
-        log::debug!("Initialised swapchain.");
-
         Ok(Self {
             swapchain_loader,
             swapchain_handle: swapchain,
@@ -157,6 +155,10 @@ impl Swapchain {
         })
     }
 
+    pub fn handle(&self) -> &ash::vk::SwapchainKHR {
+        &self.swapchain_handle
+    }
+
     /// Get the images associated with the swapchain.
     pub fn get_images(&self) -> &Vec<ash::vk::Image> {
         &self.images
@@ -165,6 +167,44 @@ impl Swapchain {
     /// Get the view into each swapchain image.
     pub fn get_image_views(&self) -> &Vec<ash::vk::ImageView> {
         &self.image_views
+    }
+
+    pub fn get_extent(&self) -> ash::vk::Extent2D {
+        self.extent
+    }
+
+    pub fn get_surface_format(&self) -> ash::vk::SurfaceFormatKHR {
+        self.surface_format
+    }
+
+    /// Acquire a swapchain image, triggering the given semaphore when finished.
+    /// On success, returns both the image index and whether the swapchain is suboptimal.
+    pub fn acquire_next_image(
+        &self,
+        image_acquired_semaphore: &ash::vk::Semaphore,
+    ) -> Result<(u32, bool), ash::vk::Result> {
+        unsafe {
+            self.swapchain_loader.acquire_next_image(
+                self.swapchain_handle,
+                std::u64::MAX,
+                *image_acquired_semaphore,
+                ash::vk::Fence::null(),
+            )
+        }
+    }
+
+    /// Queue for presentation on the given queue with the given info.
+    /// If the swapchain is suboptimal for presentation, returns an `Ok` value of true.
+    /// If the swapchain is out of date, returns an `Err` value of ERROR_OUT_OF_DATE_KHR.
+    pub fn queue_present(
+        &self,
+        presentation_queue: &ash::vk::Queue,
+        present_info: &ash::vk::PresentInfoKHR,
+    ) -> Result<bool, ash::vk::Result> {
+        unsafe {
+            self.swapchain_loader
+                .queue_present(*presentation_queue, present_info)
+        }
     }
 }
 
@@ -179,8 +219,6 @@ impl Destroy for Swapchain {
 
             self.swapchain_loader
                 .destroy_swapchain(self.swapchain_handle, None);
-
-            log::debug!("Destroyed swapchain");
         }
     }
 }
