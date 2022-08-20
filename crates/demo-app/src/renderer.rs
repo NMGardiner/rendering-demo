@@ -108,9 +108,11 @@ impl Renderer {
             .swapchain
             .acquire_next_image(frame.get_image_acquired_semaphore());
 
-        if let Some(error) = acquire_result.err() && error == ash::vk::Result::ERROR_OUT_OF_DATE_KHR {
+        if acquire_result.is_err()
+            && acquire_result.err().unwrap() == ash::vk::Result::ERROR_OUT_OF_DATE_KHR
+        {
             self.recreate_swapchain(window)?;
-            return Ok(())
+            return Ok(());
         }
 
         let image_index = acquire_result.unwrap().0;
