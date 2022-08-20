@@ -69,7 +69,7 @@ impl FrameResources {
         })
     }
 
-    pub fn get_command_buffer(&self) -> &ash::vk::CommandBuffer {
+    pub fn command_buffer(&self) -> &ash::vk::CommandBuffer {
         &self.command_buffer
     }
 
@@ -90,15 +90,15 @@ impl FrameResources {
         unsafe { Ok(device.handle().end_command_buffer(self.command_buffer)?) }
     }
 
-    pub fn get_image_acquired_semaphore(&self) -> &ash::vk::Semaphore {
+    pub fn image_acquired_semaphore(&self) -> &ash::vk::Semaphore {
         &self.image_acquired_semaphore
     }
 
-    pub fn get_render_finished_semaphore(&self) -> &ash::vk::Semaphore {
+    pub fn render_finished_semaphore(&self) -> &ash::vk::Semaphore {
         &self.render_finished_semaphore
     }
 
-    pub fn get_render_finished_fence(&self) -> &ash::vk::Fence {
+    pub fn render_finished_fence(&self) -> &ash::vk::Fence {
         &self.render_finished_fence
     }
 

@@ -160,20 +160,20 @@ impl Swapchain {
     }
 
     /// Get the images associated with the swapchain.
-    pub fn get_images(&self) -> &Vec<ash::vk::Image> {
+    pub fn images(&self) -> &Vec<ash::vk::Image> {
         &self.images
     }
 
     /// Get the view into each swapchain image.
-    pub fn get_image_views(&self) -> &Vec<ash::vk::ImageView> {
+    pub fn image_views(&self) -> &Vec<ash::vk::ImageView> {
         &self.image_views
     }
 
-    pub fn get_extent(&self) -> ash::vk::Extent2D {
+    pub fn extent(&self) -> ash::vk::Extent2D {
         self.extent
     }
 
-    pub fn get_surface_format(&self) -> ash::vk::SurfaceFormatKHR {
+    pub fn surface_format(&self) -> ash::vk::SurfaceFormatKHR {
         self.surface_format
     }
 
