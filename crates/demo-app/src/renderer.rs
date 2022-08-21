@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{error::Error, path::Path};
 
 use winit::{
     event::{Event, WindowEvent},
@@ -15,6 +15,7 @@ pub struct Renderer {
 
     frame_index: usize,
 
+    pipeline: Pipeline,
     frames_in_flight: Vec<FrameResources>,
     swapchain: Swapchain,
     device: Device,
@@ -48,10 +49,29 @@ impl Renderer {
             frames_in_flight.push(FrameResources::new(&device)?);
         }
 
+        let vert_shader = Shader::new(
+            Path::new("./data/shaders/compiled/triangle.vert.spv"),
+            &device,
+        )?;
+
+        let frag_shader = Shader::new(
+            Path::new("./data/shaders/compiled/triangle.frag.spv"),
+            &device,
+        )?;
+
+        let pipeline = Pipeline::builder()
+            .shaders(&[&vert_shader, &frag_shader])
+            .colour_formats(&[swapchain.surface_format().format])
+            .build(&device)?;
+
+        vert_shader.destroy(&device);
+        frag_shader.destroy(&device);
+
         Ok(Renderer {
             should_render_flag: true,
             window_resize_flag: false,
             frame_index: 0,
+            pipeline,
             frames_in_flight,
             swapchain,
             device,
@@ -106,7 +126,7 @@ impl Renderer {
 
         let acquire_result = self
             .swapchain
-            .acquire_next_image(frame.get_image_acquired_semaphore());
+            .acquire_next_image(frame.image_acquired_semaphore());
 
         if acquire_result.is_err()
             && acquire_result.err().unwrap() == ash::vk::Result::ERROR_OUT_OF_DATE_KHR
@@ -143,7 +163,7 @@ impl Renderer {
                 .new_layout(ash::vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
                 .src_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
                 .dst_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
-                .image(self.swapchain.get_images()[image_index as usize])
+                .image(self.swapchain.images()[image_index as usize])
                 .subresource_range(default_subresource_range)
                 .build(),
             ash::vk::ImageMemoryBarrier2::builder()
@@ -155,7 +175,7 @@ impl Renderer {
                 .new_layout(ash::vk::ImageLayout::PRESENT_SRC_KHR)
                 .src_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
                 .dst_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
-                .image(self.swapchain.get_images()[image_index as usize])
+                .image(self.swapchain.images()[image_index as usize])
                 .subresource_range(default_subresource_range)
                 .build(),
         ];
@@ -169,11 +189,11 @@ impl Renderer {
         unsafe {
             self.device
                 .handle()
-                .cmd_pipeline_barrier2(*frame.get_command_buffer(), &dependency_info);
+                .cmd_pipeline_barrier2(*frame.command_buffer(), &dependency_info);
         }
 
         let colour_attachment_rendering_info = ash::vk::RenderingAttachmentInfoKHR::builder()
-            .image_view(self.swapchain.get_image_views()[image_index as usize])
+            .image_view(self.swapchain.image_views()[image_index as usize])
             .image_layout(ash::vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .resolve_mode(ash::vk::ResolveModeFlags::NONE)
             .load_op(ash::vk::AttachmentLoadOp::CLEAR)
@@ -186,7 +206,7 @@ impl Renderer {
             .build();
 
         let render_area = ash::vk::Rect2D::builder()
-            .extent(self.swapchain.get_extent())
+            .extent(self.swapchain.extent())
             .offset(*ash::vk::Offset2D::builder().x(0).y(0))
             .build();
 
@@ -201,20 +221,56 @@ impl Renderer {
         unsafe {
             self.device
                 .handle()
-                .cmd_begin_rendering(*frame.get_command_buffer(), &rendering_info);
+                .cmd_begin_rendering(*frame.command_buffer(), &rendering_info);
+
+            // Use a flipped (negative height) viewport.
+            let viewport = ash::vk::Viewport::builder()
+                .x(0.0)
+                .y(self.swapchain.extent().height as f32)
+                .width(self.swapchain.extent().width as f32)
+                .height(-(self.swapchain.extent().height as f32))
+                .min_depth(0.0)
+                .max_depth(1.0)
+                .build();
 
             self.device
                 .handle()
-                .cmd_end_rendering(*frame.get_command_buffer());
+                .cmd_set_viewport(*frame.command_buffer(), 0, &[viewport]);
+
+            let scissor = ash::vk::Rect2D::builder()
+                .offset(ash::vk::Offset2D { x: 0, y: 0 })
+                .extent(ash::vk::Extent2D {
+                    width: self.swapchain.extent().width,
+                    height: self.swapchain.extent().height,
+                })
+                .build();
+
+            self.device
+                .handle()
+                .cmd_set_scissor(*frame.command_buffer(), 0, &[scissor]);
+
+            self.device.handle().cmd_bind_pipeline(
+                *frame.command_buffer(),
+                ash::vk::PipelineBindPoint::GRAPHICS,
+                *self.pipeline.handle(),
+            );
+
+            self.device
+                .handle()
+                .cmd_draw(*frame.command_buffer(), 3, 1, 0, 0);
+
+            self.device
+                .handle()
+                .cmd_end_rendering(*frame.command_buffer());
         }
 
         frame.end_command_buffer(&self.device)?;
 
         let submit_info = ash::vk::SubmitInfo::builder()
-            .wait_semaphores(&[*frame.get_image_acquired_semaphore()])
+            .wait_semaphores(&[*frame.image_acquired_semaphore()])
             .wait_dst_stage_mask(&[ash::vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
-            .command_buffers(&[*frame.get_command_buffer()])
-            .signal_semaphores(&[*frame.get_render_finished_semaphore()])
+            .command_buffers(&[*frame.command_buffer()])
+            .signal_semaphores(&[*frame.render_finished_semaphore()])
             .build();
 
         let presentation_queue = self.device.graphics_queue();
@@ -222,7 +278,7 @@ impl Renderer {
             self.device.handle().queue_submit(
                 *presentation_queue,
                 &[submit_info],
-                *frame.get_render_finished_fence(),
+                *frame.render_finished_fence(),
             )?;
         }
 
@@ -230,7 +286,7 @@ impl Renderer {
 
         let image_indices = [image_index];
         let present_info = ash::vk::PresentInfoKHR::builder()
-            .wait_semaphores(&[*frame.get_render_finished_semaphore()])
+            .wait_semaphores(&[*frame.render_finished_semaphore()])
             .swapchains(&swapchains)
             .image_indices(&image_indices)
             .build();
@@ -284,6 +340,9 @@ impl Drop for Renderer {
 
         // Destroy any objects that need manual destruction.
         // The rest of the renderer objects are destroyed in drop() after this.
+
+        self.pipeline.destroy(&self.device);
+
         for frame in self.frames_in_flight.iter() {
             frame.destroy(&self.device);
         }
