@@ -302,6 +302,34 @@ impl Renderer {
                 ash::vk::IndexType::UINT32,
             );
 
+            let view_matrix = glm::look_at(
+                &glm::vec3(0.0, 0.0, -0.5),
+                &glm::vec3(0.0, 0.0, 0.0),
+                &glm::vec3(0.0, 1.0, 0.0),
+            );
+
+            let aspect =
+                self.swapchain.extent().width as f32 / self.swapchain.extent().height as f32;
+
+            let projection_matrix = glm::perspective_zo(aspect, 1.222, 0.1, 10.0);
+
+            let push_constants = PushConstants {
+                matrix: projection_matrix * view_matrix,
+            };
+
+            let push_constants_slice = std::slice::from_raw_parts(
+                &push_constants as *const PushConstants as *const u8,
+                std::mem::size_of::<PushConstants>() / std::mem::size_of::<u8>(),
+            );
+
+            self.device.handle().cmd_push_constants(
+                *frame.command_buffer(),
+                *self.pipeline.layout(),
+                ash::vk::ShaderStageFlags::VERTEX,
+                0,
+                push_constants_slice,
+            );
+
             self.device.handle().cmd_draw_indexed(
                 *frame.command_buffer(),
                 self.index_buffer.data().len() as u32,
@@ -410,4 +438,8 @@ impl Drop for Renderer {
 pub struct Vertex {
     pub position: glm::Vec3,
     pub colour: glm::Vec3,
+}
+
+pub struct PushConstants {
+    pub matrix: glm::Mat4,
 }

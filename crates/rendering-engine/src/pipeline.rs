@@ -124,11 +124,13 @@ impl Pipeline {
         let mut vertex_binding_descriptions: Vec<ash::vk::VertexInputBindingDescription> = vec![];
         let mut vertex_attribute_descriptions: Vec<ash::vk::VertexInputAttributeDescription> =
             vec![];
+        let mut push_constant_ranges: Vec<ash::vk::PushConstantRange> = vec![];
 
         for shader in builder.shaders.iter() {
             shader_stage_infos.push(*shader.stage_info());
             vertex_binding_descriptions.extend(shader.binding_descriptions().clone());
             vertex_attribute_descriptions.extend(shader.attribute_descriptions().clone());
+            push_constant_ranges.extend(shader.push_constant_ranges().clone());
         }
 
         let input_state_info = ash::vk::PipelineVertexInputStateCreateInfo::builder()
@@ -182,7 +184,7 @@ impl Pipeline {
             .attachments(&attachment_states);
 
         let pipeline_layout_info = ash::vk::PipelineLayoutCreateInfo::builder()
-            .push_constant_ranges(&[])
+            .push_constant_ranges(&push_constant_ranges)
             .set_layouts(&[]);
 
         let pipeline_layout = unsafe {
@@ -240,6 +242,10 @@ impl Pipeline {
 
     pub fn handle(&self) -> &ash::vk::Pipeline {
         &self.pipeline_handle
+    }
+
+    pub fn layout(&self) -> &ash::vk::PipelineLayout {
+        &self.pipeline_layout
     }
 }
 

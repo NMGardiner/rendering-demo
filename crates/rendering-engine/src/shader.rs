@@ -13,6 +13,7 @@ pub struct Shader {
     shader_stage_info: ash::vk::PipelineShaderStageCreateInfo,
     binding_descriptions: Vec<ash::vk::VertexInputBindingDescription>,
     attribute_descriptions: Vec<ash::vk::VertexInputAttributeDescription>,
+    push_constant_ranges: Vec<ash::vk::PushConstantRange>,
 }
 
 impl Shader {
@@ -72,6 +73,18 @@ impl Shader {
             }
         }
 
+        let push_constant_ranges = reflection_module
+            .enumerate_push_constant_blocks(None)?
+            .iter()
+            .map(|range| {
+                ash::vk::PushConstantRange::builder()
+                    .offset(range.offset)
+                    .size(range.size)
+                    .stage_flags(stage_flags)
+                    .build()
+            })
+            .collect::<Vec<_>>();
+
         let shader_stage_info = ash::vk::PipelineShaderStageCreateInfo::builder()
             .module(module)
             .stage(stage_flags)
@@ -84,6 +97,7 @@ impl Shader {
             shader_stage_info,
             binding_descriptions,
             attribute_descriptions,
+            push_constant_ranges,
         })
     }
 
@@ -97,6 +111,10 @@ impl Shader {
 
     pub fn attribute_descriptions(&self) -> &Vec<ash::vk::VertexInputAttributeDescription> {
         &self.attribute_descriptions
+    }
+
+    pub fn push_constant_ranges(&self) -> &Vec<ash::vk::PushConstantRange> {
+        &self.push_constant_ranges
     }
 }
 
