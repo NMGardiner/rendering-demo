@@ -209,7 +209,7 @@ impl Swapchain {
 }
 
 impl Destroy for Swapchain {
-    fn destroy(&self, device: &Device) {
+    fn destroy(&mut self, device: &Device) {
         unsafe {
             for &swapchain_image_view in self.image_views.iter() {
                 device

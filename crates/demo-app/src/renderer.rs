@@ -5,6 +5,8 @@ use winit::{
     window::Window,
 };
 
+use nalgebra_glm as glm;
+
 use rendering_engine::*;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
@@ -15,6 +17,8 @@ pub struct Renderer {
 
     frame_index: usize,
 
+    index_buffer: Buffer<u32>,
+    vertex_buffer: Buffer<Vertex>,
     pipeline: Pipeline,
     frames_in_flight: Vec<FrameResources>,
     swapchain: Swapchain,
@@ -49,12 +53,12 @@ impl Renderer {
             frames_in_flight.push(FrameResources::new(&device)?);
         }
 
-        let vert_shader = Shader::new(
+        let mut vert_shader = Shader::new(
             Path::new("./data/shaders/compiled/triangle.vert.spv"),
             &device,
         )?;
 
-        let frag_shader = Shader::new(
+        let mut frag_shader = Shader::new(
             Path::new("./data/shaders/compiled/triangle.frag.spv"),
             &device,
         )?;
@@ -67,10 +71,39 @@ impl Renderer {
         vert_shader.destroy(&device);
         frag_shader.destroy(&device);
 
+        let vertices = vec![
+            Vertex {
+                position: glm::vec3(-0.5, 0.5, 1.0),
+                colour: glm::vec3(0.0, 1.0, 0.0),
+            },
+            Vertex {
+                position: glm::vec3(0.5, 0.5, 1.0),
+                colour: glm::vec3(0.0, 0.0, 1.0),
+            },
+            Vertex {
+                position: glm::vec3(0.5, -0.5, 1.0),
+                colour: glm::vec3(0.0, 0.0, 1.0),
+            },
+            Vertex {
+                position: glm::vec3(-0.5, -0.5, 1.0),
+                colour: glm::vec3(0.0, 1.0, 0.0),
+            },
+        ];
+
+        let vertex_buffer =
+            Buffer::new_with_data(&device, ash::vk::BufferUsageFlags::VERTEX_BUFFER, vertices)?;
+
+        let indices: Vec<u32> = vec![0, 1, 2, 2, 3, 0];
+
+        let index_buffer =
+            Buffer::new_with_data(&device, ash::vk::BufferUsageFlags::INDEX_BUFFER, indices)?;
+
         Ok(Renderer {
             should_render_flag: true,
             window_resize_flag: false,
             frame_index: 0,
+            index_buffer,
+            vertex_buffer,
             pipeline,
             frames_in_flight,
             swapchain,
@@ -255,9 +288,28 @@ impl Renderer {
                 *self.pipeline.handle(),
             );
 
-            self.device
-                .handle()
-                .cmd_draw(*frame.command_buffer(), 3, 1, 0, 0);
+            self.device.handle().cmd_bind_vertex_buffers(
+                *frame.command_buffer(),
+                0,
+                &[*self.vertex_buffer.handle()],
+                &[0],
+            );
+
+            self.device.handle().cmd_bind_index_buffer(
+                *frame.command_buffer(),
+                *self.index_buffer.handle(),
+                0,
+                ash::vk::IndexType::UINT32,
+            );
+
+            self.device.handle().cmd_draw_indexed(
+                *frame.command_buffer(),
+                self.index_buffer.data().len() as u32,
+                1,
+                0,
+                0,
+                0,
+            );
 
             self.device
                 .handle()
@@ -341,12 +393,21 @@ impl Drop for Renderer {
         // Destroy any objects that need manual destruction.
         // The rest of the renderer objects are destroyed in drop() after this.
 
+        self.index_buffer.destroy(&self.device);
+        self.vertex_buffer.destroy(&self.device);
+
         self.pipeline.destroy(&self.device);
 
-        for frame in self.frames_in_flight.iter() {
+        for frame in self.frames_in_flight.iter_mut() {
             frame.destroy(&self.device);
         }
 
         self.swapchain.destroy(&self.device);
     }
+}
+
+#[derive(Copy, Clone)]
+pub struct Vertex {
+    pub position: glm::Vec3,
+    pub colour: glm::Vec3,
 }

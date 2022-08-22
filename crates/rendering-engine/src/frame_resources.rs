@@ -138,7 +138,7 @@ impl FrameResources {
 
     /// Calls [`Destroy::destroy`] on each stored object, and clears the deletion queue.
     pub fn process_deferred_deletion_queue(&mut self, device: &Device) {
-        for object in self.deferred_deletion_queue.iter() {
+        for object in self.deferred_deletion_queue.iter_mut() {
             object.destroy(device);
         }
 
@@ -147,7 +147,7 @@ impl FrameResources {
 }
 
 impl Destroy for FrameResources {
-    fn destroy(&self, device: &Device) {
+    fn destroy(&mut self, device: &Device) {
         unsafe {
             device
                 .handle()

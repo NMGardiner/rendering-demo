@@ -1,4 +1,10 @@
-use std::{error::Error, ffi::CStr};
+use std::{
+    error::Error,
+    ffi::CStr,
+    sync::{Arc, Mutex},
+};
+
+use gpu_allocator::vulkan::*;
 
 use crate::*;
 
@@ -8,6 +14,13 @@ pub struct Device {
     physical_device_handle: ash::vk::PhysicalDevice,
     graphics_queue: ash::vk::Queue,
     graphics_family_index: u32,
+
+    memory_allocator: Option<Arc<Mutex<Allocator>>>,
+
+    // Immediate submission resources.
+    command_pool: ash::vk::CommandPool,
+    command_buffer: ash::vk::CommandBuffer,
+    completion_fence: ash::vk::Fence,
 }
 
 impl Device {
@@ -146,11 +159,42 @@ impl Device {
 
         log::info!("Selected device: {}", device_name.to_str()?);
 
+        let memory_allocator_info = AllocatorCreateDesc {
+            instance: instance.handle().clone(),
+            physical_device,
+            device: device.clone(),
+            debug_settings: Default::default(),
+            buffer_device_address: false,
+        };
+
+        let memory_allocator = Arc::new(Mutex::new(Allocator::new(&memory_allocator_info)?));
+
+        // Initialise immediate submission resources.
+        let command_pool_info = ash::vk::CommandPoolCreateInfo::builder()
+            .queue_family_index(graphics_family_index)
+            .flags(ash::vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
+
+        let command_pool = unsafe { device.create_command_pool(&command_pool_info, None)? };
+
+        let command_buffer_info = ash::vk::CommandBufferAllocateInfo::builder()
+            .command_pool(command_pool)
+            .level(ash::vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(1);
+
+        let command_buffer = unsafe { device.allocate_command_buffers(&command_buffer_info)?[0] };
+
+        let completion_fence =
+            unsafe { device.create_fence(&ash::vk::FenceCreateInfo::default(), None)? };
+
         Ok(Self {
             device_handle: device,
             physical_device_handle: physical_device,
             graphics_queue,
             graphics_family_index,
+            memory_allocator: Some(memory_allocator),
+            command_pool,
+            command_buffer,
+            completion_fence,
         })
     }
 
@@ -169,11 +213,69 @@ impl Device {
     pub fn graphics_family_index(&self) -> u32 {
         self.graphics_family_index
     }
+
+    pub fn memory_allocator(&self) -> Arc<Mutex<Allocator>> {
+        self.memory_allocator.as_ref().unwrap().clone()
+    }
+
+    /// Immediately submit a function for execution on the device.
+    ///
+    /// # Errors
+    ///
+    /// This function can error if the given function returns an error, or if `ash` fails to start/end
+    /// the command buffer, fails to submit to the graphics queue, fails to wait/reset the necessary fence,
+    /// or fails to reset the immediate submission command pool.
+    pub fn perform_immediate_submission<F>(&self, function: F) -> Result<(), Box<dyn Error>>
+    where
+        F: Fn(ash::vk::CommandBuffer),
+    {
+        let command_buffer_begin_info = ash::vk::CommandBufferBeginInfo::builder()
+            .flags(ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        unsafe {
+            self.device_handle
+                .begin_command_buffer(self.command_buffer, &command_buffer_begin_info)?;
+
+            function(self.command_buffer);
+
+            self.device_handle.end_command_buffer(self.command_buffer)?;
+
+            let submission_command_buffers = [self.command_buffer];
+
+            let submission_info =
+                ash::vk::SubmitInfo::builder().command_buffers(&submission_command_buffers);
+
+            self.device_handle.queue_submit(
+                self.graphics_queue,
+                &[*submission_info],
+                self.completion_fence,
+            )?;
+
+            // Wait for the command buffer to be executed and reset the command pool for the next use.
+            self.device_handle
+                .wait_for_fences(&[self.completion_fence], true, std::u64::MAX)?;
+            self.device_handle.reset_fences(&[self.completion_fence])?;
+
+            self.device_handle
+                .reset_command_pool(self.command_pool, ash::vk::CommandPoolResetFlags::empty())?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Drop for Device {
     fn drop(&mut self) {
         unsafe {
+            // The memory allocator must be dropped manually.
+            self.memory_allocator = None;
+
+            // Destroy the immediate submission resources.
+            self.device_handle
+                .destroy_fence(self.completion_fence, None);
+            self.device_handle
+                .destroy_command_pool(self.command_pool, None);
+
             self.device_handle.destroy_device(None);
         }
     }

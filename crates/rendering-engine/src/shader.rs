@@ -101,7 +101,7 @@ impl Shader {
 }
 
 impl Destroy for Shader {
-    fn destroy(&self, device: &Device) {
+    fn destroy(&mut self, device: &Device) {
         unsafe {
             device.handle().destroy_shader_module(self.module, None);
         }

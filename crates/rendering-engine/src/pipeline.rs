@@ -244,7 +244,7 @@ impl Pipeline {
 }
 
 impl Destroy for Pipeline {
-    fn destroy(&self, device: &Device) {
+    fn destroy(&mut self, device: &Device) {
         unsafe {
             device
                 .handle()

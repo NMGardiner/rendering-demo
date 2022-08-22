@@ -1,3 +1,6 @@
+mod buffer;
+pub use buffer::*;
+
 mod destructible_objects;
 pub use destructible_objects::*;
 

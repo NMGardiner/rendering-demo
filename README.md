@@ -16,7 +16,7 @@
 
 ## Dependencies
 
-Building this project requires a device and driver supporting Vulkan 1.3, and the Vulkan SDK if you wish to enable validation layers. 
+Building this project requires a device and driver supporting Vulkan 1.3, and the Vulkan SDK if you wish to enable validation layers. The shaders in data/shaders/uncompiled must also be compiled with glslc to be used by the demo application.
 
 ## Building
 
