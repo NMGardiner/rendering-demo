@@ -1,17 +1,21 @@
 use std::{error::Error, path::Path};
 
 use winit::{
-    event::{Event, WindowEvent},
+    event::{DeviceEvent, Event, WindowEvent},
     window::Window,
 };
 
 use nalgebra_glm as glm;
+
+use crate::camera::*;
 
 use rendering_engine::*;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 pub struct Renderer {
+    camera: Camera,
+
     window_resize_flag: bool,
     should_render_flag: bool,
 
@@ -98,7 +102,11 @@ impl Renderer {
         let index_buffer =
             Buffer::new_with_data(&device, ash::vk::BufferUsageFlags::INDEX_BUFFER, indices)?;
 
+        let mut camera = Camera::new();
+        camera.set_position(0.0, 0.0, 2.0);
+
         Ok(Renderer {
+            camera,
             should_render_flag: true,
             window_resize_flag: false,
             frame_index: 0,
@@ -135,6 +143,37 @@ impl Renderer {
                         self.should_render_flag = true;
                         self.window_resize_flag = true;
                     }
+                }
+                WindowEvent::KeyboardInput { input, .. } => {
+                    if let winit::event::KeyboardInput {
+                        state: winit::event::ElementState::Pressed,
+                        virtual_keycode: Some(keycode),
+                        ..
+                    } = input
+                    {
+                        match keycode {
+                            winit::event::VirtualKeyCode::W => {
+                                self.camera.translate(0.0, 0.0, 0.1);
+                            }
+                            winit::event::VirtualKeyCode::A => {
+                                self.camera.translate(-0.1, 0.0, 0.0);
+                            }
+                            winit::event::VirtualKeyCode::S => {
+                                self.camera.translate(0.0, 0.0, -0.1);
+                            }
+                            winit::event::VirtualKeyCode::D => {
+                                self.camera.translate(0.1, 0.0, 0.0);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => (),
+            },
+            Event::DeviceEvent { event, .. } => match event {
+                DeviceEvent::MouseMotion { delta, .. } => {
+                    self.camera
+                        .rotate((delta.0 / 8.0) as f32, (-delta.1 / 8.0) as f32);
                 }
                 _ => (),
             },
@@ -303,8 +342,8 @@ impl Renderer {
             );
 
             let view_matrix = glm::look_at(
-                &glm::vec3(0.0, 0.0, -0.5),
-                &glm::vec3(0.0, 0.0, 0.0),
+                &self.camera.get_position(),
+                &(self.camera.get_position() + self.camera.get_front()),
                 &glm::vec3(0.0, 1.0, 0.0),
             );
 

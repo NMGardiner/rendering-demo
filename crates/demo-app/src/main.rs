@@ -1,3 +1,5 @@
+mod camera;
+
 mod renderer;
 use renderer::*;
 
@@ -20,6 +22,9 @@ fn main() {
         .with_inner_size(LogicalSize::new(1024, 768))
         .build(&event_loop)
         .unwrap();
+
+    window.set_cursor_grab(true).unwrap();
+    window.set_cursor_visible(false);
 
     let mut renderer = Renderer::new(&window).unwrap();
 
