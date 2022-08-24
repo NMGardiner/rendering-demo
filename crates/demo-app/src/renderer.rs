@@ -23,7 +23,9 @@ pub struct Renderer {
 
     index_buffer: Buffer<u32>,
     vertex_buffer: Buffer<Vertex>,
+    model_data: ModelData,
     pipeline: Pipeline,
+    depth_image: Image,
     frames_in_flight: Vec<FrameResources>,
     swapchain: Swapchain,
     device: Device,
@@ -57,6 +59,19 @@ impl Renderer {
             frames_in_flight.push(FrameResources::new(&device)?);
         }
 
+        let depth_image = Image::new(
+            &device,
+            ash::vk::Extent3D::builder()
+                .width(swapchain.extent().width)
+                .height(swapchain.extent().height)
+                .depth(1)
+                .build(),
+            ash::vk::Format::D32_SFLOAT,
+            ash::vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            ash::vk::ImageAspectFlags::DEPTH,
+            1,
+        )?;
+
         let mut vert_shader = Shader::new(
             Path::new("./data/shaders/compiled/triangle.vert.spv"),
             &device,
@@ -70,37 +85,25 @@ impl Renderer {
         let pipeline = Pipeline::builder()
             .shaders(&[&vert_shader, &frag_shader])
             .colour_formats(&[swapchain.surface_format().format])
+            .depth_format(depth_image.format())
             .build(&device)?;
 
         vert_shader.destroy(&device);
         frag_shader.destroy(&device);
 
-        let vertices = vec![
-            Vertex {
-                position: glm::vec3(-0.5, 0.5, 1.0),
-                colour: glm::vec3(0.0, 1.0, 0.0),
-            },
-            Vertex {
-                position: glm::vec3(0.5, 0.5, 1.0),
-                colour: glm::vec3(0.0, 0.0, 1.0),
-            },
-            Vertex {
-                position: glm::vec3(0.5, -0.5, 1.0),
-                colour: glm::vec3(0.0, 0.0, 1.0),
-            },
-            Vertex {
-                position: glm::vec3(-0.5, -0.5, 1.0),
-                colour: glm::vec3(0.0, 1.0, 0.0),
-            },
-        ];
+        let model_data = load_model()?;
 
-        let vertex_buffer =
-            Buffer::new_with_data(&device, ash::vk::BufferUsageFlags::VERTEX_BUFFER, vertices)?;
+        let vertex_buffer = Buffer::new_with_data(
+            &device,
+            ash::vk::BufferUsageFlags::VERTEX_BUFFER,
+            model_data.vertices.clone(),
+        )?;
 
-        let indices: Vec<u32> = vec![0, 1, 2, 2, 3, 0];
-
-        let index_buffer =
-            Buffer::new_with_data(&device, ash::vk::BufferUsageFlags::INDEX_BUFFER, indices)?;
+        let index_buffer = Buffer::new_with_data(
+            &device,
+            ash::vk::BufferUsageFlags::INDEX_BUFFER,
+            model_data.indices.clone(),
+        )?;
 
         let mut camera = Camera::new();
         camera.set_position(0.0, 0.0, 2.0);
@@ -112,7 +115,9 @@ impl Renderer {
             frame_index: 0,
             index_buffer,
             vertex_buffer,
+            model_data,
             pipeline,
+            depth_image,
             frames_in_flight,
             swapchain,
             device,
@@ -214,7 +219,7 @@ impl Renderer {
             ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
         )?;
 
-        let default_subresource_range = ash::vk::ImageSubresourceRange::builder()
+        let colour_subresource_range = ash::vk::ImageSubresourceRange::builder()
             .aspect_mask(ash::vk::ImageAspectFlags::COLOR)
             .base_mip_level(0)
             .level_count(1)
@@ -236,7 +241,7 @@ impl Renderer {
                 .src_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
                 .dst_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
                 .image(self.swapchain.images()[image_index as usize])
-                .subresource_range(default_subresource_range)
+                .subresource_range(colour_subresource_range)
                 .build(),
             ash::vk::ImageMemoryBarrier2::builder()
                 .src_stage_mask(ash::vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
@@ -248,7 +253,25 @@ impl Renderer {
                 .src_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
                 .dst_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
                 .image(self.swapchain.images()[image_index as usize])
-                .subresource_range(default_subresource_range)
+                .subresource_range(colour_subresource_range)
+                .build(),
+            ash::vk::ImageMemoryBarrier2::builder()
+                .src_stage_mask(
+                    ash::vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS
+                        | ash::vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
+                )
+                .src_access_mask(ash::vk::AccessFlags2::empty())
+                .dst_stage_mask(
+                    ash::vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS
+                        | ash::vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
+                )
+                .dst_access_mask(ash::vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE)
+                .old_layout(ash::vk::ImageLayout::UNDEFINED)
+                .new_layout(ash::vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                .src_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
+                .image(*self.depth_image.handle())
+                .subresource_range(*self.depth_image.subresource_range())
                 .build(),
         ];
 
@@ -277,6 +300,20 @@ impl Renderer {
             })
             .build();
 
+        let depth_attachment_rendering_info = ash::vk::RenderingAttachmentInfoKHR::builder()
+            .image_view(*self.depth_image.view())
+            .image_layout(ash::vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .resolve_mode(ash::vk::ResolveModeFlags::NONE)
+            .load_op(ash::vk::AttachmentLoadOp::CLEAR)
+            .store_op(ash::vk::AttachmentStoreOp::DONT_CARE)
+            .clear_value(ash::vk::ClearValue {
+                depth_stencil: ash::vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            })
+            .build();
+
         let render_area = ash::vk::Rect2D::builder()
             .extent(self.swapchain.extent())
             .offset(*ash::vk::Offset2D::builder().x(0).y(0))
@@ -288,6 +325,7 @@ impl Renderer {
             .layer_count(1)
             .view_mask(0)
             .color_attachments(&[colour_attachment_rendering_info])
+            .depth_attachment(&depth_attachment_rendering_info)
             .build();
 
         unsafe {
@@ -350,33 +388,43 @@ impl Renderer {
             let aspect =
                 self.swapchain.extent().width as f32 / self.swapchain.extent().height as f32;
 
-            let projection_matrix = glm::perspective_zo(aspect, 1.222, 0.1, 10.0);
+            let projection_matrix = glm::perspective_zo(aspect, 1.222, 0.1, 100.0);
 
-            let push_constants = PushConstants {
-                matrix: projection_matrix * view_matrix,
-            };
+            for (index, vertex_offset) in self.model_data.vertex_offsets.iter().enumerate() {
+                let index_count = if self.model_data.index_offsets.len() > index + 1 {
+                    self.model_data.index_offsets[index + 1] - self.model_data.index_offsets[index]
+                } else {
+                    self.model_data.indices.len() - self.model_data.index_offsets[index]
+                };
 
-            let push_constants_slice = std::slice::from_raw_parts(
-                &push_constants as *const PushConstants as *const u8,
-                std::mem::size_of::<PushConstants>() / std::mem::size_of::<u8>(),
-            );
+                if let Some(matrix) = self.model_data.matrices[index] {
+                    let push_constants = PushConstants {
+                        matrix: projection_matrix * view_matrix * matrix,
+                    };
 
-            self.device.handle().cmd_push_constants(
-                *frame.command_buffer(),
-                *self.pipeline.layout(),
-                ash::vk::ShaderStageFlags::VERTEX,
-                0,
-                push_constants_slice,
-            );
+                    let push_constants_slice = std::slice::from_raw_parts(
+                        &push_constants as *const PushConstants as *const u8,
+                        std::mem::size_of::<PushConstants>() / std::mem::size_of::<u8>(),
+                    );
 
-            self.device.handle().cmd_draw_indexed(
-                *frame.command_buffer(),
-                self.index_buffer.data().len() as u32,
-                1,
-                0,
-                0,
-                0,
-            );
+                    self.device.handle().cmd_push_constants(
+                        *frame.command_buffer(),
+                        *self.pipeline.layout(),
+                        ash::vk::ShaderStageFlags::VERTEX,
+                        0,
+                        push_constants_slice,
+                    );
+                }
+
+                self.device.handle().cmd_draw_indexed(
+                    *frame.command_buffer(),
+                    index_count as u32,
+                    1,
+                    self.model_data.index_offsets[index] as u32,
+                    *vertex_offset as i32,
+                    0,
+                );
+            }
 
             self.device
                 .handle()
@@ -465,6 +513,8 @@ impl Drop for Renderer {
 
         self.pipeline.destroy(&self.device);
 
+        self.depth_image.destroy(&self.device);
+
         for frame in self.frames_in_flight.iter_mut() {
             frame.destroy(&self.device);
         }
@@ -477,8 +527,100 @@ impl Drop for Renderer {
 pub struct Vertex {
     pub position: glm::Vec3,
     pub colour: glm::Vec3,
+    pub normal: glm::Vec3,
 }
 
 pub struct PushConstants {
     pub matrix: glm::Mat4,
+}
+
+pub struct ModelData {
+    vertices: Vec<Vertex>,
+    vertex_offsets: Vec<usize>,
+    indices: Vec<u32>,
+    index_offsets: Vec<usize>,
+    matrices: Vec<Option<glm::Mat4>>,
+}
+
+pub fn load_model() -> Result<ModelData, Box<dyn Error>> {
+    let (document, buffers, _images) =
+        gltf::import(Path::new(r"./data/assets/DamagedHelmet/DamagedHelmet.gltf"))?;
+
+    let mut vertices: Vec<Vertex> = vec![];
+    let mut indices: Vec<u32> = vec![];
+    let mut vertex_offsets: Vec<usize> = vec![];
+    let mut index_offsets: Vec<usize> = vec![];
+    let mut matrices: Vec<Option<glm::Mat4>> = vec![];
+
+    for node in document.nodes() {
+        let transform_matrix = node.transform().matrix();
+        let transform_matrix: &[f32] = unsafe {
+            std::slice::from_raw_parts(transform_matrix.as_ptr().cast(), transform_matrix.len() * 4)
+        };
+
+        let mut pushed = false;
+        if let Some(mesh) = node.mesh() {
+            for primitive in mesh.primitives() {
+                // Store the transformation matrix for each mesh. Pad with None to line up with vertex_offsets.
+                if !pushed {
+                    matrices.push(Some(glm::make_mat4(transform_matrix)));
+                    pushed = true;
+                } else {
+                    matrices.push(None);
+                }
+
+                let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
+
+                let mut positions: Vec<glm::Vec3> = vec![];
+                let mut normals: Vec<glm::Vec3> = vec![];
+
+                if let Some(primitive_positions) = reader.read_positions() {
+                    for primitive_position in primitive_positions {
+                        positions.push(glm::make_vec3(&primitive_position));
+
+                        // Push a default normal in case there's none given.
+                        normals.push(glm::Vec3::zeros());
+                    }
+                }
+
+                if let Some(primitive_normals) = reader.read_normals() {
+                    for (index, primitive_normal) in primitive_normals.enumerate() {
+                        normals[index] = glm::make_vec3(&primitive_normal);
+                    }
+                }
+
+                vertex_offsets.push(vertices.len());
+                for (index, position) in positions.iter().enumerate() {
+                    vertices.push(Vertex {
+                        position: *position,
+                        colour: glm::vec3(0.5, 0.5, 0.5),
+                        normal: normals[index],
+                    });
+                }
+
+                index_offsets.push(indices.len());
+                if let Some(primitive_indices) = reader.read_indices() {
+                    match primitive_indices {
+                        gltf::mesh::util::ReadIndices::U8(i) => {
+                            indices.extend(i.map(|index| index as u32));
+                        }
+                        gltf::mesh::util::ReadIndices::U16(i) => {
+                            indices.extend(i.map(|index| index as u32));
+                        }
+                        gltf::mesh::util::ReadIndices::U32(i) => {
+                            indices.extend(i);
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    Ok(ModelData {
+        vertices,
+        vertex_offsets,
+        indices,
+        index_offsets,
+        matrices,
+    })
 }

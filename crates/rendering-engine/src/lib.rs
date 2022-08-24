@@ -10,6 +10,9 @@ pub use device::*;
 mod frame_resources;
 pub use frame_resources::*;
 
+mod image;
+pub use image::*;
+
 mod instance;
 pub use instance::*;
 
