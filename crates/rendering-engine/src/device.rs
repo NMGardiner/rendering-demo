@@ -56,9 +56,15 @@ impl Device {
         let mut synchronization2_features =
             ash::vk::PhysicalDeviceSynchronization2Features::builder().synchronization2(true);
 
+        let mut descriptor_indexing_features =
+            ash::vk::PhysicalDeviceDescriptorIndexingFeatures::builder()
+                .descriptor_binding_partially_bound(true)
+                .runtime_descriptor_array(true);
+
         let mut required_features = ash::vk::PhysicalDeviceFeatures2::builder()
             .push_next(&mut dynamic_rendering_features)
             .push_next(&mut synchronization2_features)
+            .push_next(&mut descriptor_indexing_features)
             .features(core_features)
             .build();
 
@@ -227,7 +233,7 @@ impl Device {
     /// or fails to reset the immediate submission command pool.
     pub fn perform_immediate_submission<F>(&self, function: F) -> Result<(), Box<dyn Error>>
     where
-        F: Fn(ash::vk::CommandBuffer),
+        F: Fn(ash::vk::CommandBuffer) -> Result<(), Box<dyn Error>>,
     {
         let command_buffer_begin_info = ash::vk::CommandBufferBeginInfo::builder()
             .flags(ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
@@ -236,7 +242,7 @@ impl Device {
             self.device_handle
                 .begin_command_buffer(self.command_buffer, &command_buffer_begin_info)?;
 
-            function(self.command_buffer);
+            function(self.command_buffer)?;
 
             self.device_handle.end_command_buffer(self.command_buffer)?;
 
@@ -258,6 +264,43 @@ impl Device {
 
             self.device_handle
                 .reset_command_pool(self.command_pool, ash::vk::CommandPoolResetFlags::empty())?;
+        }
+
+        Ok(())
+    }
+
+    pub fn perform_image_layout_transition(
+        &self,
+        command_buffer: &ash::vk::CommandBuffer,
+        image: &ash::vk::Image,
+        src_stage_mask: ash::vk::PipelineStageFlags2,
+        src_access_mask: ash::vk::AccessFlags2,
+        dst_stage_mask: ash::vk::PipelineStageFlags2,
+        dst_access_mask: ash::vk::AccessFlags2,
+        old_layout: ash::vk::ImageLayout,
+        new_layout: ash::vk::ImageLayout,
+        subresource_range: &ash::vk::ImageSubresourceRange,
+    ) -> Result<(), Box<dyn Error>> {
+        let barriers = [ash::vk::ImageMemoryBarrier2::builder()
+            .src_stage_mask(src_stage_mask)
+            .src_access_mask(src_access_mask)
+            .dst_stage_mask(dst_stage_mask)
+            .dst_access_mask(dst_access_mask)
+            .old_layout(old_layout)
+            .new_layout(new_layout)
+            .src_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
+            .image(*image)
+            .subresource_range(*subresource_range)
+            .build()];
+
+        let dependency_info = ash::vk::DependencyInfo::builder()
+            .dependency_flags(ash::vk::DependencyFlags::empty())
+            .image_memory_barriers(&barriers);
+
+        unsafe {
+            self.device_handle
+                .cmd_pipeline_barrier2(*command_buffer, &dependency_info);
         }
 
         Ok(())

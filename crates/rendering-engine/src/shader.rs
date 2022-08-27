@@ -3,6 +3,7 @@ use std::{error::Error, fs::File, path::Path};
 
 use crate::*;
 
+use ash::vk::DescriptorType as AshDescriptorType;
 use ash::vk::Format as AshFormat;
 use ash::vk::ShaderStageFlags as AshShaderStageFlags;
 use spirv_reflect::types::*;
@@ -14,6 +15,7 @@ pub struct Shader {
     binding_descriptions: Vec<ash::vk::VertexInputBindingDescription>,
     attribute_descriptions: Vec<ash::vk::VertexInputAttributeDescription>,
     push_constant_ranges: Vec<ash::vk::PushConstantRange>,
+    descriptor_set_layouts: Vec<ash::vk::DescriptorSetLayout>,
 }
 
 impl Shader {
@@ -42,6 +44,7 @@ impl Shader {
 
             for input in reflection_module.enumerate_input_variables(None)? {
                 // gl_VertexIndex seems to be passed in at this location, so ignore it.
+                // TODO: Ignore any inputs with a location greater than maxVertexInputAttributes.
                 if input.location == std::u32::MAX {
                     continue;
                 }
@@ -85,6 +88,48 @@ impl Shader {
             })
             .collect::<Vec<_>>();
 
+        let mut descriptor_set_layouts: Vec<ash::vk::DescriptorSetLayout> = vec![];
+
+        for descriptor_set in reflection_module.enumerate_descriptor_sets(None)? {
+            let mut set_bindings: Vec<ash::vk::DescriptorSetLayoutBinding> = vec![];
+
+            for set_binding in descriptor_set.bindings {
+                // If the array length isn't specified, give it a default, non-zero value.
+                // This is the situation when using bindless textures.
+                let descriptor_count = if set_binding.array.dims.is_empty() {
+                    1024
+                } else {
+                    set_binding.count
+                };
+
+                set_bindings.push(
+                    ash::vk::DescriptorSetLayoutBinding::builder()
+                        .descriptor_type(convert_descriptor_type(set_binding.descriptor_type))
+                        .descriptor_count(descriptor_count)
+                        .binding(set_binding.binding)
+                        .stage_flags(stage_flags)
+                        .build(),
+                );
+            }
+
+            let mut set_layout_binding_flags =
+                ash::vk::DescriptorSetLayoutBindingFlagsCreateInfo::builder()
+                    .binding_flags(&[ash::vk::DescriptorBindingFlags::PARTIALLY_BOUND]);
+
+            let set_layout_info = ash::vk::DescriptorSetLayoutCreateInfo::builder()
+                .push_next(&mut set_layout_binding_flags)
+                .flags(ash::vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
+                .bindings(set_bindings.as_slice());
+
+            let set_layout = unsafe {
+                device
+                    .handle()
+                    .create_descriptor_set_layout(&set_layout_info, None)?
+            };
+
+            descriptor_set_layouts.push(set_layout);
+        }
+
         let shader_stage_info = ash::vk::PipelineShaderStageCreateInfo::builder()
             .module(module)
             .stage(stage_flags)
@@ -98,6 +143,7 @@ impl Shader {
             binding_descriptions,
             attribute_descriptions,
             push_constant_ranges,
+            descriptor_set_layouts,
         })
     }
 
@@ -115,6 +161,10 @@ impl Shader {
 
     pub fn push_constant_ranges(&self) -> &Vec<ash::vk::PushConstantRange> {
         &self.push_constant_ranges
+    }
+
+    pub fn descriptor_set_layouts(&self) -> &Vec<ash::vk::DescriptorSetLayout> {
+        &self.descriptor_set_layouts
     }
 }
 
@@ -189,5 +239,26 @@ fn convert_format(reflect_format: ReflectFormat) -> (ash::vk::Format, u32) {
         ReflectFormat::R32_SINT => (AshFormat::R32_SINT, 4),
         ReflectFormat::R32_UINT => (AshFormat::R32_UINT, 4),
         ReflectFormat::Undefined => (AshFormat::UNDEFINED, 0),
+    }
+}
+
+/// Convert spirv-reflect's descriptor type flags to those used by Ash.
+fn convert_descriptor_type(reflect_descriptor_type: ReflectDescriptorType) -> AshDescriptorType {
+    match reflect_descriptor_type {
+        ReflectDescriptorType::AccelerationStructureNV => {
+            AshDescriptorType::ACCELERATION_STRUCTURE_NV
+        }
+        ReflectDescriptorType::CombinedImageSampler => AshDescriptorType::COMBINED_IMAGE_SAMPLER,
+        ReflectDescriptorType::InputAttachment => AshDescriptorType::INPUT_ATTACHMENT,
+        ReflectDescriptorType::SampledImage => AshDescriptorType::SAMPLED_IMAGE,
+        ReflectDescriptorType::Sampler => AshDescriptorType::SAMPLER,
+        ReflectDescriptorType::StorageBuffer => AshDescriptorType::STORAGE_BUFFER,
+        ReflectDescriptorType::StorageBufferDynamic => AshDescriptorType::UNIFORM_BUFFER_DYNAMIC,
+        ReflectDescriptorType::StorageImage => AshDescriptorType::STORAGE_IMAGE,
+        ReflectDescriptorType::StorageTexelBuffer => AshDescriptorType::STORAGE_TEXEL_BUFFER,
+        ReflectDescriptorType::Undefined => AshDescriptorType::default(),
+        ReflectDescriptorType::UniformBuffer => AshDescriptorType::UNIFORM_BUFFER,
+        ReflectDescriptorType::UniformBufferDynamic => AshDescriptorType::UNIFORM_BUFFER_DYNAMIC,
+        ReflectDescriptorType::UniformTexelBuffer => AshDescriptorType::UNIFORM_TEXEL_BUFFER,
     }
 }

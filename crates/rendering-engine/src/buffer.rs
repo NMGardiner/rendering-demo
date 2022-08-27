@@ -106,6 +106,8 @@ impl<T> Buffer<T> {
                     *destination_buffer.handle(),
                     &[buffer_region],
                 );
+
+                Ok(())
             })?;
         }
 

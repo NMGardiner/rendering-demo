@@ -106,6 +106,7 @@ impl<'a> Default for PipelineBuilder<'a> {
 pub struct Pipeline {
     pipeline_handle: ash::vk::Pipeline,
     pipeline_layout: ash::vk::PipelineLayout,
+    descriptor_set_layouts: Vec<ash::vk::DescriptorSetLayout>,
 }
 
 impl Pipeline {
@@ -125,12 +126,14 @@ impl Pipeline {
         let mut vertex_attribute_descriptions: Vec<ash::vk::VertexInputAttributeDescription> =
             vec![];
         let mut push_constant_ranges: Vec<ash::vk::PushConstantRange> = vec![];
+        let mut descriptor_set_layouts: Vec<ash::vk::DescriptorSetLayout> = vec![];
 
-        for shader in builder.shaders.iter() {
+        for shader in builder.shaders {
             shader_stage_infos.push(*shader.stage_info());
-            vertex_binding_descriptions.extend(shader.binding_descriptions().clone());
-            vertex_attribute_descriptions.extend(shader.attribute_descriptions().clone());
-            push_constant_ranges.extend(shader.push_constant_ranges().clone());
+            vertex_binding_descriptions.extend(shader.binding_descriptions());
+            vertex_attribute_descriptions.extend(shader.attribute_descriptions());
+            push_constant_ranges.extend(shader.push_constant_ranges());
+            descriptor_set_layouts.extend(shader.descriptor_set_layouts());
         }
 
         let input_state_info = ash::vk::PipelineVertexInputStateCreateInfo::builder()
@@ -185,7 +188,7 @@ impl Pipeline {
 
         let pipeline_layout_info = ash::vk::PipelineLayoutCreateInfo::builder()
             .push_constant_ranges(&push_constant_ranges)
-            .set_layouts(&[]);
+            .set_layouts(&descriptor_set_layouts);
 
         let pipeline_layout = unsafe {
             device
@@ -237,6 +240,7 @@ impl Pipeline {
         Ok(Self {
             pipeline_handle: pipeline,
             pipeline_layout,
+            descriptor_set_layouts,
         })
     }
 
@@ -247,11 +251,19 @@ impl Pipeline {
     pub fn layout(&self) -> &ash::vk::PipelineLayout {
         &self.pipeline_layout
     }
+
+    pub fn descriptor_set_layouts(&self) -> &Vec<ash::vk::DescriptorSetLayout> {
+        &self.descriptor_set_layouts
+    }
 }
 
 impl Destroy for Pipeline {
     fn destroy(&mut self, device: &Device) {
         unsafe {
+            for layout in self.descriptor_set_layouts.iter() {
+                device.handle().destroy_descriptor_set_layout(*layout, None);
+            }
+
             device
                 .handle()
                 .destroy_pipeline_layout(self.pipeline_layout, None);

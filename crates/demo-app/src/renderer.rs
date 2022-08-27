@@ -14,6 +14,8 @@ use rendering_engine::*;
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 pub struct Renderer {
+    texture_index: u32,
+
     camera: Camera,
 
     window_resize_flag: bool,
@@ -23,6 +25,12 @@ pub struct Renderer {
 
     index_buffer: Buffer<u32>,
     vertex_buffer: Buffer<Vertex>,
+
+    // Descriptor stuff.
+    descriptor_pool: ash::vk::DescriptorPool,
+    sampler: ash::vk::Sampler,
+    descriptor_set: ash::vk::DescriptorSet,
+
     model_data: ModelData,
     pipeline: Pipeline,
     depth_image: Image,
@@ -72,15 +80,11 @@ impl Renderer {
             1,
         )?;
 
-        let mut vert_shader = Shader::new(
-            Path::new("./data/shaders/compiled/triangle.vert.spv"),
-            &device,
-        )?;
+        let mut vert_shader =
+            Shader::new(Path::new("./data/shaders/compiled/mesh.vert.spv"), &device)?;
 
-        let mut frag_shader = Shader::new(
-            Path::new("./data/shaders/compiled/triangle.frag.spv"),
-            &device,
-        )?;
+        let mut frag_shader =
+            Shader::new(Path::new("./data/shaders/compiled/mesh.frag.spv"), &device)?;
 
         let pipeline = Pipeline::builder()
             .shaders(&[&vert_shader, &frag_shader])
@@ -91,7 +95,7 @@ impl Renderer {
         vert_shader.destroy(&device);
         frag_shader.destroy(&device);
 
-        let model_data = load_model()?;
+        let model_data = load_model(&device)?;
 
         let vertex_buffer = Buffer::new_with_data(
             &device,
@@ -105,16 +109,81 @@ impl Renderer {
             model_data.indices.clone(),
         )?;
 
+        let descriptor_pool_sizes = [ash::vk::DescriptorPoolSize::builder()
+            .ty(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(1024)
+            .build()];
+
+        let descriptor_pool_info = ash::vk::DescriptorPoolCreateInfo::builder()
+            .flags(ash::vk::DescriptorPoolCreateFlags::UPDATE_AFTER_BIND)
+            .max_sets(1)
+            .pool_sizes(&descriptor_pool_sizes);
+
+        let descriptor_pool = unsafe {
+            device
+                .handle()
+                .create_descriptor_pool(&descriptor_pool_info, None)?
+        };
+
+        let set_allocate_info = ash::vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(descriptor_pool)
+            .set_layouts(pipeline.descriptor_set_layouts());
+
+        let texture_descriptor_set = unsafe {
+            device
+                .handle()
+                .allocate_descriptor_sets(&set_allocate_info)?
+        }[0];
+
+        let sampler_info = ash::vk::SamplerCreateInfo::builder()
+            .mag_filter(ash::vk::Filter::NEAREST)
+            .min_filter(ash::vk::Filter::NEAREST)
+            .address_mode_u(ash::vk::SamplerAddressMode::REPEAT)
+            .address_mode_v(ash::vk::SamplerAddressMode::REPEAT)
+            .address_mode_w(ash::vk::SamplerAddressMode::REPEAT);
+
+        let sampler = unsafe { device.handle().create_sampler(&sampler_info, None)? };
+
+        let image_infos = model_data
+            .textures
+            .iter()
+            .map(|texture| {
+                ash::vk::DescriptorImageInfo::builder()
+                    .image_layout(ash::vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .image_view(*texture.view())
+                    .sampler(sampler)
+                    .build()
+            })
+            .collect::<Vec<_>>();
+
+        let descriptor_write = ash::vk::WriteDescriptorSet::builder()
+            .dst_binding(0)
+            .descriptor_type(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .dst_set(texture_descriptor_set)
+            .dst_array_element(0)
+            .image_info(&image_infos)
+            .build();
+
+        unsafe {
+            device
+                .handle()
+                .update_descriptor_sets(&[descriptor_write], &[]);
+        }
+
         let mut camera = Camera::new();
         camera.set_position(0.0, 0.0, 2.0);
 
         Ok(Renderer {
+            texture_index: 0,
             camera,
             should_render_flag: true,
             window_resize_flag: false,
             frame_index: 0,
             index_buffer,
             vertex_buffer,
+            descriptor_pool,
+            descriptor_set: texture_descriptor_set,
+            sampler,
             model_data,
             pipeline,
             depth_image,
@@ -168,6 +237,11 @@ impl Renderer {
                             }
                             winit::event::VirtualKeyCode::D => {
                                 self.camera.translate(0.1, 0.0, 0.0);
+                            }
+                            winit::event::VirtualKeyCode::E => {
+                                // Cycle through the model's textures.
+                                self.texture_index = (self.texture_index + 1)
+                                    % self.model_data.textures.len() as u32;
                             }
                             _ => {}
                         }
@@ -365,6 +439,15 @@ impl Renderer {
                 *self.pipeline.handle(),
             );
 
+            self.device.handle().cmd_bind_descriptor_sets(
+                *frame.command_buffer(),
+                ash::vk::PipelineBindPoint::GRAPHICS,
+                *self.pipeline.layout(),
+                0,
+                &[self.descriptor_set],
+                &[],
+            );
+
             self.device.handle().cmd_bind_vertex_buffers(
                 *frame.command_buffer(),
                 0,
@@ -422,7 +505,7 @@ impl Renderer {
                     1,
                     self.model_data.index_offsets[index] as u32,
                     *vertex_offset as i32,
-                    0,
+                    self.texture_index,
                 );
             }
 
@@ -508,6 +591,17 @@ impl Drop for Renderer {
         // Destroy any objects that need manual destruction.
         // The rest of the renderer objects are destroyed in drop() after this.
 
+        unsafe {
+            self.device.handle().destroy_sampler(self.sampler, None);
+            self.device
+                .handle()
+                .destroy_descriptor_pool(self.descriptor_pool, None);
+        }
+
+        for texture in self.model_data.textures.iter_mut() {
+            texture.destroy(&self.device);
+        }
+
         self.index_buffer.destroy(&self.device);
         self.vertex_buffer.destroy(&self.device);
 
@@ -528,6 +622,7 @@ pub struct Vertex {
     pub position: glm::Vec3,
     pub colour: glm::Vec3,
     pub normal: glm::Vec3,
+    pub texture_coords: glm::Vec2,
 }
 
 pub struct PushConstants {
@@ -540,10 +635,11 @@ pub struct ModelData {
     indices: Vec<u32>,
     index_offsets: Vec<usize>,
     matrices: Vec<Option<glm::Mat4>>,
+    textures: Vec<Image>,
 }
 
-pub fn load_model() -> Result<ModelData, Box<dyn Error>> {
-    let (document, buffers, _images) =
+pub fn load_model(device: &Device) -> Result<ModelData, Box<dyn Error>> {
+    let (document, buffers, images) =
         gltf::import(Path::new(r"./data/assets/DamagedHelmet/DamagedHelmet.gltf"))?;
 
     let mut vertices: Vec<Vertex> = vec![];
@@ -551,6 +647,39 @@ pub fn load_model() -> Result<ModelData, Box<dyn Error>> {
     let mut vertex_offsets: Vec<usize> = vec![];
     let mut index_offsets: Vec<usize> = vec![];
     let mut matrices: Vec<Option<glm::Mat4>> = vec![];
+    let mut textures: Vec<Image> = vec![];
+
+    for image in images.iter() {
+        let format = match image.format {
+            gltf::image::Format::R8 => ash::vk::Format::R8_SRGB,
+            gltf::image::Format::R8G8 => ash::vk::Format::R8G8_SRGB,
+            gltf::image::Format::R8G8B8 => ash::vk::Format::R8G8B8_SRGB,
+            gltf::image::Format::R8G8B8A8 => ash::vk::Format::R8G8B8A8_SRGB,
+            gltf::image::Format::B8G8R8 => ash::vk::Format::B8G8R8_SRGB,
+            gltf::image::Format::B8G8R8A8 => ash::vk::Format::B8G8R8A8_SRGB,
+            _ => {
+                log::error!(
+                    "This model uses an unsupported texture format: {:?}.",
+                    image.format
+                );
+                ash::vk::Format::UNDEFINED
+            }
+        };
+
+        textures.push(Image::new_with_data(
+            device,
+            &image.pixels,
+            ash::vk::Extent3D::builder()
+                .width(image.width)
+                .height(image.height)
+                .depth(1)
+                .build(),
+            format,
+            ash::vk::ImageUsageFlags::SAMPLED,
+            ash::vk::ImageAspectFlags::COLOR,
+            1,
+        )?);
+    }
 
     for node in document.nodes() {
         let transform_matrix = node.transform().matrix();
@@ -573,6 +702,7 @@ pub fn load_model() -> Result<ModelData, Box<dyn Error>> {
 
                 let mut positions: Vec<glm::Vec3> = vec![];
                 let mut normals: Vec<glm::Vec3> = vec![];
+                let mut texture_coords: Vec<glm::Vec2> = vec![];
 
                 if let Some(primitive_positions) = reader.read_positions() {
                     for primitive_position in primitive_positions {
@@ -580,6 +710,8 @@ pub fn load_model() -> Result<ModelData, Box<dyn Error>> {
 
                         // Push a default normal in case there's none given.
                         normals.push(glm::Vec3::zeros());
+
+                        texture_coords.push(glm::Vec2::zeros());
                     }
                 }
 
@@ -589,12 +721,36 @@ pub fn load_model() -> Result<ModelData, Box<dyn Error>> {
                     }
                 }
 
+                if let Some(primitive_texture_coords) = reader.read_tex_coords(0) {
+                    match primitive_texture_coords {
+                        gltf::mesh::util::ReadTexCoords::U8(data) => {
+                            for (index, texture_coord) in data.enumerate() {
+                                texture_coords[index] =
+                                    glm::vec2(texture_coord[0] as f32, texture_coord[1] as f32);
+                            }
+                        }
+                        gltf::mesh::util::ReadTexCoords::U16(data) => {
+                            for (index, texture_coord) in data.enumerate() {
+                                texture_coords[index] =
+                                    glm::vec2(texture_coord[0] as f32, texture_coord[1] as f32);
+                            }
+                        }
+                        gltf::mesh::util::ReadTexCoords::F32(data) => {
+                            for (index, texture_coord) in data.enumerate() {
+                                texture_coords[index] =
+                                    glm::vec2(texture_coord[0], texture_coord[1]);
+                            }
+                        }
+                    }
+                }
+
                 vertex_offsets.push(vertices.len());
                 for (index, position) in positions.iter().enumerate() {
                     vertices.push(Vertex {
                         position: *position,
                         colour: glm::vec3(0.5, 0.5, 0.5),
                         normal: normals[index],
+                        texture_coords: texture_coords[index],
                     });
                 }
 
@@ -622,5 +778,6 @@ pub fn load_model() -> Result<ModelData, Box<dyn Error>> {
         indices,
         index_offsets,
         matrices,
+        textures,
     })
 }

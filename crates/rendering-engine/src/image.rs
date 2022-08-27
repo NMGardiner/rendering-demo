@@ -2,6 +2,8 @@ use std::error::Error;
 
 use crate::*;
 
+use gpu_allocator::MemoryLocation;
+
 /// A Vulkan image object, allocated using gpu_allocator.
 pub struct Image {
     image_handle: ash::vk::Image,
@@ -88,6 +90,97 @@ impl Image {
             subresource_range,
             format,
         })
+    }
+
+    /// See [`Image::new`]. The image size will be that needed to store the given data. The data will be
+    /// stored in a GPU-side image via a staging buffer.
+    pub fn new_with_data<T>(
+        device: &Device,
+        data: &[T],
+        extent: ash::vk::Extent3D,
+        format: ash::vk::Format,
+        usage: ash::vk::ImageUsageFlags,
+        aspect_mask: ash::vk::ImageAspectFlags,
+        mip_levels: u32,
+    ) -> Result<Self, Box<dyn Error>> {
+        let mut staging_buffer: Buffer<T> = Buffer::new(
+            device,
+            (data.len() * std::mem::size_of::<T>()) as u64,
+            ash::vk::BufferUsageFlags::TRANSFER_SRC,
+            MemoryLocation::GpuToCpu,
+        )?;
+
+        unsafe {
+            let memory_pointer =
+                staging_buffer.allocation().mapped_ptr().unwrap().as_ptr() as *mut T;
+            memory_pointer.copy_from_nonoverlapping(data.as_ptr(), data.len());
+        }
+
+        let image = Image::new(
+            device,
+            extent,
+            format,
+            usage | ash::vk::ImageUsageFlags::TRANSFER_DST,
+            aspect_mask,
+            mip_levels,
+        )?;
+
+        device.perform_immediate_submission(|command_buffer| {
+            // Transition the image for writing.
+            device.perform_image_layout_transition(
+                &command_buffer,
+                image.handle(),
+                ash::vk::PipelineStageFlags2::TOP_OF_PIPE,
+                ash::vk::AccessFlags2::empty(),
+                ash::vk::PipelineStageFlags2::TRANSFER,
+                ash::vk::AccessFlags2::TRANSFER_WRITE,
+                ash::vk::ImageLayout::UNDEFINED,
+                ash::vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                image.subresource_range(),
+            )?;
+
+            let buffer_region = ash::vk::BufferImageCopy::builder()
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .buffer_offset(0)
+                .image_subresource(
+                    ash::vk::ImageSubresourceLayers::builder()
+                        .aspect_mask(ash::vk::ImageAspectFlags::COLOR)
+                        .mip_level(0)
+                        .base_array_layer(0)
+                        .layer_count(1)
+                        .build(),
+                )
+                .image_extent(extent);
+
+            // Write the data in the staging buffer to the image.
+            unsafe {
+                device.handle().cmd_copy_buffer_to_image(
+                    command_buffer,
+                    *staging_buffer.handle(),
+                    *image.handle(),
+                    ash::vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    &[*buffer_region],
+                );
+            }
+
+            // Transition the image for reading.
+            device.perform_image_layout_transition(
+                &command_buffer,
+                image.handle(),
+                ash::vk::PipelineStageFlags2::TRANSFER,
+                ash::vk::AccessFlags2::TRANSFER_WRITE,
+                ash::vk::PipelineStageFlags2::FRAGMENT_SHADER,
+                ash::vk::AccessFlags2::SHADER_READ,
+                ash::vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                ash::vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                image.subresource_range(),
+            )
+        })?;
+
+        staging_buffer.destroy(device);
+
+        Ok(image)
     }
 
     pub fn handle(&self) -> &ash::vk::Image {
