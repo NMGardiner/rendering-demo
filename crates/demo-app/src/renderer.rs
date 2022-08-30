@@ -59,6 +59,7 @@ impl Renderer {
             &instance,
             &surface,
             &device,
+            ash::vk::PresentModeKHR::FIFO,
             None,
         )?;
 
@@ -568,6 +569,7 @@ impl Renderer {
             &self.instance,
             &self.surface,
             &self.device,
+            self.swapchain.present_mode(),
             Some(&self.swapchain),
         )?;
 
