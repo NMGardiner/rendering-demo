@@ -9,6 +9,7 @@ pub struct Swapchain {
 
     surface_format: ash::vk::SurfaceFormatKHR,
     extent: ash::vk::Extent2D,
+    present_mode: ash::vk::PresentModeKHR,
 
     images: Vec<ash::vk::Image>,
     image_views: Vec<ash::vk::ImageView>,
@@ -22,6 +23,7 @@ impl Swapchain {
         instance: &Instance,
         surface: &Surface,
         device: &Device,
+        preferred_present_mode: ash::vk::PresentModeKHR,
         old_swapchain: Option<&Swapchain>,
     ) -> Result<Self, Box<dyn Error>> {
         let swapchain_loader =
@@ -75,8 +77,8 @@ impl Swapchain {
             supported_surface_capabilities.min_image_count + 1
         };
 
-        // Try to use the mailbox present mode, but fall back to fifo if mailbox is unsupported, as
-        // fifo is guaranteed to be supported.
+        // If the preferred present mode is supported, use it. If not, fall back to FIFO as it is guaranteed
+        // to be supported.
         let swapchain_present_mode = unsafe {
             surface
                 .loader()
@@ -85,9 +87,18 @@ impl Swapchain {
                     *surface.handle(),
                 )?
                 .into_iter()
-                .find(|&mode| mode == ash::vk::PresentModeKHR::MAILBOX)
+                .find(|&mode| mode == preferred_present_mode)
                 .unwrap_or(ash::vk::PresentModeKHR::FIFO)
         };
+
+        // Log a warning if the preferred present mode is unusupported.
+        if preferred_present_mode != swapchain_present_mode {
+            log::warn!(
+                "Swapchain present mode {:?} is unsupported, falling back to {:?}.",
+                preferred_present_mode,
+                swapchain_present_mode
+            );
+        }
 
         let queue_family_indices = [device.graphics_family_index()];
 
@@ -150,6 +161,7 @@ impl Swapchain {
             swapchain_handle: swapchain,
             surface_format: swapchain_image_format,
             extent: swapchain_extent,
+            present_mode: swapchain_present_mode,
             images: swapchain_images,
             image_views: swapchain_image_views,
         })
@@ -169,12 +181,16 @@ impl Swapchain {
         &self.image_views
     }
 
+    pub fn surface_format(&self) -> ash::vk::SurfaceFormatKHR {
+        self.surface_format
+    }
+
     pub fn extent(&self) -> ash::vk::Extent2D {
         self.extent
     }
 
-    pub fn surface_format(&self) -> ash::vk::SurfaceFormatKHR {
-        self.surface_format
+    pub fn present_mode(&self) -> ash::vk::PresentModeKHR {
+        self.present_mode
     }
 
     /// Acquire a swapchain image, triggering the given semaphore when finished.
