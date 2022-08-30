@@ -5,13 +5,12 @@ use gpu_allocator::{vulkan::*, MemoryLocation};
 use crate::*;
 
 /// A Vulkan buffer object, allocated using gpu_allocator.
-pub struct Buffer<T> {
+pub struct Buffer {
     buffer_handle: ash::vk::Buffer,
     allocation: Allocation,
-    data: Vec<T>,
 }
 
-impl<T> Buffer<T> {
+impl Buffer {
     /// Create a new buffer of the given size, with the given usage flags and memory location.
     /// The allocated memory will be mapped and bound.
     ///
@@ -56,7 +55,6 @@ impl<T> Buffer<T> {
         Ok(Self {
             buffer_handle: buffer,
             allocation,
-            data: vec![],
         })
     }
 
@@ -67,14 +65,14 @@ impl<T> Buffer<T> {
     ///
     /// This function can error if either the staging or gpu-side buffers fail to be created, or if copying the
     /// data from the staging buffer to the gpu-side buffer fails.
-    pub fn new_with_data(
+    pub fn new_with_data<T>(
         device: &Device,
         usage: ash::vk::BufferUsageFlags,
         data: Vec<T>,
     ) -> Result<Self, Box<dyn Error>> {
         let data_size = (data.len() * std::mem::size_of::<T>()).try_into().unwrap();
 
-        let mut staging_buffer: Buffer<T> = Buffer::new(
+        let mut staging_buffer: Buffer = Buffer::new(
             device,
             data_size,
             ash::vk::BufferUsageFlags::TRANSFER_SRC,
@@ -89,7 +87,7 @@ impl<T> Buffer<T> {
             memory_pointer.copy_from_nonoverlapping(data.as_ptr(), data.len());
         }
 
-        let mut destination_buffer = Buffer::new(
+        let destination_buffer = Buffer::new(
             device,
             data_size,
             usage | ash::vk::BufferUsageFlags::TRANSFER_DST,
@@ -111,8 +109,6 @@ impl<T> Buffer<T> {
             })?;
         }
 
-        destination_buffer.data = data;
-
         staging_buffer.destroy(device);
 
         Ok(destination_buffer)
@@ -125,13 +121,9 @@ impl<T> Buffer<T> {
     pub fn allocation(&self) -> &Allocation {
         &self.allocation
     }
-
-    pub fn data(&self) -> &[T] {
-        &self.data
-    }
 }
 
-impl<T> Destroy for Buffer<T> {
+impl Destroy for Buffer {
     fn destroy(&mut self, device: &Device) {
         unsafe {
             device

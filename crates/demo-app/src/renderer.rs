@@ -24,8 +24,8 @@ pub struct Renderer {
     frame_index: usize,
 
     // glTF models may not provide indices.
-    index_buffer: Option<Buffer<u32>>,
-    vertex_buffer: Buffer<Vertex>,
+    index_buffer: Option<Buffer>,
+    vertex_buffer: Buffer,
 
     // Descriptor stuff.
     descriptor_pool: ash::vk::DescriptorPool,

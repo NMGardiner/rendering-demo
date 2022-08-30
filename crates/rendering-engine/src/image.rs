@@ -103,7 +103,7 @@ impl Image {
         aspect_mask: ash::vk::ImageAspectFlags,
         mip_levels: u32,
     ) -> Result<Self, Box<dyn Error>> {
-        let mut staging_buffer: Buffer<T> = Buffer::new(
+        let mut staging_buffer: Buffer = Buffer::new(
             device,
             (data.len() * std::mem::size_of::<T>()) as u64,
             ash::vk::BufferUsageFlags::TRANSFER_SRC,
