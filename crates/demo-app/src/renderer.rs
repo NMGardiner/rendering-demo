@@ -23,7 +23,8 @@ pub struct Renderer {
 
     frame_index: usize,
 
-    index_buffer: Buffer<u32>,
+    // glTF models may not provide indices.
+    index_buffer: Option<Buffer<u32>>,
     vertex_buffer: Buffer<Vertex>,
 
     // Descriptor stuff.
@@ -104,11 +105,15 @@ impl Renderer {
             model_data.vertices.clone(),
         )?;
 
-        let index_buffer = Buffer::new_with_data(
-            &device,
-            ash::vk::BufferUsageFlags::INDEX_BUFFER,
-            model_data.indices.clone(),
-        )?;
+        let index_buffer = if model_data.indices.is_empty() {
+            None
+        } else {
+            Some(Buffer::new_with_data(
+                &device,
+                ash::vk::BufferUsageFlags::INDEX_BUFFER,
+                model_data.indices.clone(),
+            )?)
+        };
 
         let descriptor_pool_sizes = [ash::vk::DescriptorPoolSize::builder()
             .ty(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
@@ -456,12 +461,14 @@ impl Renderer {
                 &[0],
             );
 
-            self.device.handle().cmd_bind_index_buffer(
-                *frame.command_buffer(),
-                *self.index_buffer.handle(),
-                0,
-                ash::vk::IndexType::UINT32,
-            );
+            if let Some(index_buffer) = &self.index_buffer {
+                self.device.handle().cmd_bind_index_buffer(
+                    *frame.command_buffer(),
+                    *index_buffer.handle(),
+                    0,
+                    ash::vk::IndexType::UINT32,
+                );
+            }
 
             let view_matrix = glm::look_at(
                 &self.camera.get_position(),
@@ -475,12 +482,6 @@ impl Renderer {
             let projection_matrix = glm::perspective_zo(aspect, 1.222, 0.1, 100.0);
 
             for (index, vertex_offset) in self.model_data.vertex_offsets.iter().enumerate() {
-                let index_count = if self.model_data.index_offsets.len() > index + 1 {
-                    self.model_data.index_offsets[index + 1] - self.model_data.index_offsets[index]
-                } else {
-                    self.model_data.indices.len() - self.model_data.index_offsets[index]
-                };
-
                 if let Some(matrix) = self.model_data.matrices[index] {
                     let push_constants = PushConstants {
                         matrix: projection_matrix * view_matrix * matrix,
@@ -500,14 +501,38 @@ impl Renderer {
                     );
                 }
 
-                self.device.handle().cmd_draw_indexed(
-                    *frame.command_buffer(),
-                    index_count as u32,
-                    1,
-                    self.model_data.index_offsets[index] as u32,
-                    *vertex_offset as i32,
-                    self.texture_index,
-                );
+                if self.index_buffer.is_some() {
+                    let index_count = if self.model_data.index_offsets.len() > index + 1 {
+                        self.model_data.index_offsets[index + 1]
+                            - self.model_data.index_offsets[index]
+                    } else {
+                        self.model_data.indices.len() - self.model_data.index_offsets[index]
+                    };
+
+                    self.device.handle().cmd_draw_indexed(
+                        *frame.command_buffer(),
+                        index_count as u32,
+                        1,
+                        self.model_data.index_offsets[index] as u32,
+                        *vertex_offset as i32,
+                        self.texture_index,
+                    );
+                } else {
+                    let vertex_count = if self.model_data.vertex_offsets.len() > index + 1 {
+                        self.model_data.vertex_offsets[index + 1]
+                            - self.model_data.vertex_offsets[index]
+                    } else {
+                        self.model_data.vertices.len() - self.model_data.vertex_offsets[index]
+                    };
+
+                    self.device.handle().cmd_draw(
+                        *frame.command_buffer(),
+                        vertex_count as u32,
+                        1,
+                        self.model_data.vertex_offsets[index] as u32,
+                        self.texture_index,
+                    );
+                }
             }
 
             self.device
@@ -604,7 +629,9 @@ impl Drop for Renderer {
             texture.destroy(&self.device);
         }
 
-        self.index_buffer.destroy(&self.device);
+        if let Some(index_buffer) = &mut self.index_buffer {
+            index_buffer.destroy(&self.device);
+        }
         self.vertex_buffer.destroy(&self.device);
 
         self.pipeline.destroy(&self.device);
