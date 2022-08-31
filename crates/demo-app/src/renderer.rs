@@ -26,11 +26,13 @@ pub struct Renderer {
     // glTF models may not provide indices.
     index_buffer: Option<Buffer>,
     vertex_buffer: Buffer,
+    material_buffer: Buffer,
 
     // Descriptor stuff.
     descriptor_pool: ash::vk::DescriptorPool,
     sampler: ash::vk::Sampler,
-    descriptor_set: ash::vk::DescriptorSet,
+    global_descriptor_set: ash::vk::DescriptorSet,
+    texture_descriptor_set: ash::vk::DescriptorSet,
 
     model_data: ModelData,
     pipeline: Pipeline,
@@ -102,7 +104,7 @@ impl Renderer {
         let vertex_buffer = Buffer::new_with_data(
             &device,
             ash::vk::BufferUsageFlags::VERTEX_BUFFER,
-            model_data.vertices.clone(),
+            &model_data.vertices,
         )?;
 
         let index_buffer = if model_data.indices.is_empty() {
@@ -111,18 +113,24 @@ impl Renderer {
             Some(Buffer::new_with_data(
                 &device,
                 ash::vk::BufferUsageFlags::INDEX_BUFFER,
-                model_data.indices.clone(),
+                &model_data.indices,
             )?)
         };
 
-        let descriptor_pool_sizes = [ash::vk::DescriptorPoolSize::builder()
-            .ty(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1024)
-            .build()];
+        let descriptor_pool_sizes = [
+            ash::vk::DescriptorPoolSize::builder()
+                .ty(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .descriptor_count(1024)
+                .build(),
+            ash::vk::DescriptorPoolSize::builder()
+                .ty(ash::vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(4)
+                .build(),
+        ];
 
         let descriptor_pool_info = ash::vk::DescriptorPoolCreateInfo::builder()
             .flags(ash::vk::DescriptorPoolCreateFlags::UPDATE_AFTER_BIND)
-            .max_sets(1)
+            .max_sets(8)
             .pool_sizes(&descriptor_pool_sizes);
 
         let descriptor_pool = unsafe {
@@ -135,11 +143,34 @@ impl Renderer {
             .descriptor_pool(descriptor_pool)
             .set_layouts(pipeline.descriptor_set_layouts());
 
-        let texture_descriptor_set = unsafe {
+        let descriptor_sets = unsafe {
             device
                 .handle()
                 .allocate_descriptor_sets(&set_allocate_info)?
-        }[0];
+        };
+
+        let global_descriptor_set = descriptor_sets[0];
+        let texture_descriptor_set = descriptor_sets[1];
+
+        let material_buffer = Buffer::new_with_data(
+            &device,
+            ash::vk::BufferUsageFlags::STORAGE_BUFFER,
+            &model_data.materials,
+        )?;
+
+        let buffer_infos = [ash::vk::DescriptorBufferInfo::builder()
+            .buffer(*material_buffer.handle())
+            .offset(0)
+            .range((std::mem::size_of::<MaterialData>() * model_data.materials.len()) as u64)
+            .build()];
+
+        let global_descriptor_write = ash::vk::WriteDescriptorSet::builder()
+            .dst_binding(0)
+            .descriptor_type(ash::vk::DescriptorType::STORAGE_BUFFER)
+            .dst_set(global_descriptor_set)
+            .dst_array_element(0)
+            .buffer_info(&buffer_infos)
+            .build();
 
         let sampler_info = ash::vk::SamplerCreateInfo::builder()
             .mag_filter(ash::vk::Filter::NEAREST)
@@ -162,7 +193,7 @@ impl Renderer {
             })
             .collect::<Vec<_>>();
 
-        let descriptor_write = ash::vk::WriteDescriptorSet::builder()
+        let texture_descriptor_write = ash::vk::WriteDescriptorSet::builder()
             .dst_binding(0)
             .descriptor_type(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .dst_set(texture_descriptor_set)
@@ -173,7 +204,7 @@ impl Renderer {
         unsafe {
             device
                 .handle()
-                .update_descriptor_sets(&[descriptor_write], &[]);
+                .update_descriptor_sets(&[global_descriptor_write, texture_descriptor_write], &[]);
         }
 
         let mut camera = Camera::new();
@@ -187,8 +218,10 @@ impl Renderer {
             frame_index: 0,
             index_buffer,
             vertex_buffer,
+            material_buffer,
             descriptor_pool,
-            descriptor_set: texture_descriptor_set,
+            global_descriptor_set,
+            texture_descriptor_set,
             sampler,
             model_data,
             pipeline,
@@ -450,7 +483,7 @@ impl Renderer {
                 ash::vk::PipelineBindPoint::GRAPHICS,
                 *self.pipeline.layout(),
                 0,
-                &[self.descriptor_set],
+                &[self.global_descriptor_set, self.texture_descriptor_set],
                 &[],
             );
 
@@ -618,6 +651,8 @@ impl Drop for Renderer {
         // Destroy any objects that need manual destruction.
         // The rest of the renderer objects are destroyed in drop() after this.
 
+        self.material_buffer.destroy(&self.device);
+
         unsafe {
             self.device.handle().destroy_sampler(self.sampler, None);
             self.device
@@ -649,7 +684,6 @@ impl Drop for Renderer {
 #[derive(Copy, Clone)]
 pub struct Vertex {
     pub position: glm::Vec3,
-    pub colour: glm::Vec3,
     pub normal: glm::Vec3,
     pub texture_coords: glm::Vec2,
 }
@@ -665,6 +699,38 @@ pub struct ModelData {
     index_offsets: Vec<usize>,
     matrices: Vec<Option<glm::Mat4>>,
     textures: Vec<Image>,
+    materials: Vec<MaterialData>,
+}
+
+/// Object for storing per-material data including indexes into the texture array.
+pub struct MaterialData {
+    base_colour_factor: glm::Vec4,
+
+    base_colour_texture: i32,
+    matrough_texture: i32,
+    normal_texture: i32,
+    occlusion_texture: i32,
+
+    emissive_texture: i32,
+    padding0: u32,
+    padding1: u32,
+    padding2: u32,
+}
+
+impl Default for MaterialData {
+    fn default() -> Self {
+        Self {
+            base_colour_factor: glm::vec4(0.0, 0.0, 0.0, 0.0),
+            base_colour_texture: -1,
+            matrough_texture: -1,
+            normal_texture: -1,
+            occlusion_texture: -1,
+            emissive_texture: -1,
+            padding0: 0,
+            padding1: 0,
+            padding2: 0,
+        }
+    }
 }
 
 pub fn load_model(device: &Device) -> Result<ModelData, Box<dyn Error>> {
@@ -677,37 +743,51 @@ pub fn load_model(device: &Device) -> Result<ModelData, Box<dyn Error>> {
     let mut index_offsets: Vec<usize> = vec![];
     let mut matrices: Vec<Option<glm::Mat4>> = vec![];
     let mut textures: Vec<Image> = vec![];
+    let mut materials: Vec<MaterialData> = vec![];
 
-    for image in images.iter() {
-        let format = match image.format {
-            gltf::image::Format::R8 => ash::vk::Format::R8_SRGB,
-            gltf::image::Format::R8G8 => ash::vk::Format::R8G8_SRGB,
-            gltf::image::Format::R8G8B8 => ash::vk::Format::R8G8B8_SRGB,
-            gltf::image::Format::R8G8B8A8 => ash::vk::Format::R8G8B8A8_SRGB,
-            gltf::image::Format::B8G8R8 => ash::vk::Format::B8G8R8_SRGB,
-            gltf::image::Format::B8G8R8A8 => ash::vk::Format::B8G8R8A8_SRGB,
-            _ => {
-                log::error!(
-                    "This model uses an unsupported texture format: {:?}.",
-                    image.format
-                );
-                ash::vk::Format::UNDEFINED
-            }
-        };
+    for material in document.materials() {
+        let mut material_data = MaterialData::default();
 
-        textures.push(Image::new_with_data(
-            device,
-            &image.pixels,
-            ash::vk::Extent3D::builder()
-                .width(image.width)
-                .height(image.height)
-                .depth(1)
-                .build(),
-            format,
-            ash::vk::ImageUsageFlags::SAMPLED,
-            ash::vk::ImageAspectFlags::COLOR,
-            1,
-        )?);
+        let matrough_data = material.pbr_metallic_roughness();
+
+        material_data.base_colour_factor = glm::make_vec4(&matrough_data.base_color_factor());
+
+        // Albedo / base colour
+        if let Some(albedo_texture_info) = matrough_data.base_color_texture() {
+            let image = &images[albedo_texture_info.texture().index()];
+            material_data.base_colour_texture = textures.len() as i32;
+            textures.push(texture_from_image(image, device)?);
+        }
+
+        // Metallic roughness
+        if let Some(matrough_texture_info) = matrough_data.metallic_roughness_texture() {
+            let image = &images[matrough_texture_info.texture().index()];
+            material_data.matrough_texture = textures.len() as i32;
+            textures.push(texture_from_image(image, device)?);
+        }
+
+        // Normal
+        if let Some(normal_texture_info) = material.normal_texture() {
+            let image = &images[normal_texture_info.texture().index()];
+            material_data.normal_texture = textures.len() as i32;
+            textures.push(texture_from_image(image, device)?);
+        }
+
+        // Ambient occlusion
+        if let Some(occlusion_texture_info) = material.occlusion_texture() {
+            let image = &images[occlusion_texture_info.texture().index()];
+            material_data.occlusion_texture = textures.len() as i32;
+            textures.push(texture_from_image(image, device)?);
+        }
+
+        // Emissive
+        if let Some(emissive_texture_info) = material.emissive_texture() {
+            let image = &images[emissive_texture_info.texture().index()];
+            material_data.emissive_texture = textures.len() as i32;
+            textures.push(texture_from_image(image, device)?);
+        }
+
+        materials.push(material_data);
     }
 
     for node in document.nodes() {
@@ -777,7 +857,6 @@ pub fn load_model(device: &Device) -> Result<ModelData, Box<dyn Error>> {
                 for (index, position) in positions.iter().enumerate() {
                     vertices.push(Vertex {
                         position: *position,
-                        colour: glm::vec3(0.5, 0.5, 0.5),
                         normal: normals[index],
                         texture_coords: texture_coords[index],
                     });
@@ -808,5 +887,41 @@ pub fn load_model(device: &Device) -> Result<ModelData, Box<dyn Error>> {
         index_offsets,
         matrices,
         textures,
+        materials,
     })
+}
+
+pub fn texture_from_image(
+    image: &gltf::image::Data,
+    device: &Device,
+) -> Result<Image, Box<dyn Error>> {
+    let format = match image.format {
+        gltf::image::Format::R8 => ash::vk::Format::R8_SRGB,
+        gltf::image::Format::R8G8 => ash::vk::Format::R8G8_SRGB,
+        gltf::image::Format::R8G8B8 => ash::vk::Format::R8G8B8_SRGB,
+        gltf::image::Format::R8G8B8A8 => ash::vk::Format::R8G8B8A8_SRGB,
+        gltf::image::Format::B8G8R8 => ash::vk::Format::B8G8R8_SRGB,
+        gltf::image::Format::B8G8R8A8 => ash::vk::Format::B8G8R8A8_SRGB,
+        _ => {
+            log::error!(
+                "This model uses an unsupported texture format: {:?}.",
+                image.format
+            );
+            ash::vk::Format::UNDEFINED
+        }
+    };
+
+    Image::new_with_data(
+        device,
+        &image.pixels,
+        ash::vk::Extent3D::builder()
+            .width(image.width)
+            .height(image.height)
+            .depth(1)
+            .build(),
+        format,
+        ash::vk::ImageUsageFlags::SAMPLED,
+        ash::vk::ImageAspectFlags::COLOR,
+        1,
+    )
 }

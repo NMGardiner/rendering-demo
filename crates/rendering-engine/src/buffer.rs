@@ -68,7 +68,7 @@ impl Buffer {
     pub fn new_with_data<T>(
         device: &Device,
         usage: ash::vk::BufferUsageFlags,
-        data: Vec<T>,
+        data: &[T],
     ) -> Result<Self, Box<dyn Error>> {
         let data_size = (data.len() * std::mem::size_of::<T>()).try_into().unwrap();
 
