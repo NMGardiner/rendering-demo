@@ -19,7 +19,12 @@ pub struct Shader {
 }
 
 impl Shader {
-    /// Load a SPIR-V shader from a file,
+    /// Load a SPIR-V shader from a file, and use reflection to determine various pipeline layout settings.
+    ///
+    /// # Errors
+    ///
+    /// This function can error if opening the file fails, if `ash` fails to parse the SPIR-V or create the shader
+    /// module or descriptor set layout, or if `spirv_reflect` fails to create a reflection module.
     pub fn new(path: &Path, device: &Device) -> Result<Self, Box<dyn Error>> {
         let mut file = File::open(path)?;
         let bytecode = ash::util::read_spv(&mut file)?;
@@ -92,14 +97,15 @@ impl Shader {
 
         for descriptor_set in reflection_module.enumerate_descriptor_sets(None)? {
             let mut set_bindings: Vec<ash::vk::DescriptorSetLayoutBinding> = vec![];
+            let mut set_binding_flags: Vec<ash::vk::DescriptorBindingFlags> = vec![];
 
             for set_binding in descriptor_set.bindings {
                 // If the array length isn't specified, give it a default, non-zero value.
                 // This is the situation when using bindless textures.
-                let descriptor_count = if set_binding.array.dims.is_empty() {
-                    1024
+                let (descriptor_count, binding_flags) = if set_binding.array.dims.is_empty() {
+                    (1024, ash::vk::DescriptorBindingFlags::PARTIALLY_BOUND)
                 } else {
-                    set_binding.count
+                    (set_binding.count, ash::vk::DescriptorBindingFlags::empty())
                 };
 
                 set_bindings.push(
@@ -110,11 +116,13 @@ impl Shader {
                         .stage_flags(stage_flags)
                         .build(),
                 );
+
+                set_binding_flags.push(binding_flags);
             }
 
             let mut set_layout_binding_flags =
                 ash::vk::DescriptorSetLayoutBindingFlagsCreateInfo::builder()
-                    .binding_flags(&[ash::vk::DescriptorBindingFlags::PARTIALLY_BOUND]);
+                    .binding_flags(&set_binding_flags);
 
             let set_layout_info = ash::vk::DescriptorSetLayoutCreateInfo::builder()
                 .push_next(&mut set_layout_binding_flags)
