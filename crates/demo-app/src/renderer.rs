@@ -23,9 +23,6 @@ pub struct Renderer {
 
     frame_index: usize,
 
-    // glTF models may not provide indices.
-    index_buffer: Option<Buffer>,
-    vertex_buffer: Buffer,
     material_buffer: Buffer,
 
     // Descriptor stuff.
@@ -100,22 +97,6 @@ impl Renderer {
         frag_shader.destroy(&device);
 
         let model_data = load_model(&device)?;
-
-        let vertex_buffer = Buffer::new_with_data(
-            &device,
-            ash::vk::BufferUsageFlags::VERTEX_BUFFER,
-            &model_data.vertices,
-        )?;
-
-        let index_buffer = if model_data.indices.is_empty() {
-            None
-        } else {
-            Some(Buffer::new_with_data(
-                &device,
-                ash::vk::BufferUsageFlags::INDEX_BUFFER,
-                &model_data.indices,
-            )?)
-        };
 
         let descriptor_pool_sizes = [
             ash::vk::DescriptorPoolSize::builder()
@@ -216,8 +197,6 @@ impl Renderer {
             should_render_flag: true,
             window_resize_flag: false,
             frame_index: 0,
-            index_buffer,
-            vertex_buffer,
             material_buffer,
             descriptor_pool,
             global_descriptor_set,
@@ -490,11 +469,11 @@ impl Renderer {
             self.device.handle().cmd_bind_vertex_buffers(
                 *frame.command_buffer(),
                 0,
-                &[*self.vertex_buffer.handle()],
+                &[*self.model_data.vertex_buffer.handle()],
                 &[0],
             );
 
-            if let Some(index_buffer) = &self.index_buffer {
+            if let Some(index_buffer) = &self.model_data.index_buffer {
                 self.device.handle().cmd_bind_index_buffer(
                     *frame.command_buffer(),
                     *index_buffer.handle(),
@@ -534,35 +513,21 @@ impl Renderer {
                     );
                 }
 
-                if self.index_buffer.is_some() {
-                    let index_count = if self.model_data.index_offsets.len() > index + 1 {
-                        self.model_data.index_offsets[index + 1]
-                            - self.model_data.index_offsets[index]
-                    } else {
-                        self.model_data.indices.len() - self.model_data.index_offsets[index]
-                    };
-
+                if self.model_data.index_buffer.is_some() {
                     self.device.handle().cmd_draw_indexed(
                         *frame.command_buffer(),
-                        index_count as u32,
+                        self.model_data.index_offsets[index].1 as u32,
                         1,
-                        self.model_data.index_offsets[index] as u32,
-                        *vertex_offset as i32,
+                        self.model_data.index_offsets[index].0 as u32,
+                        vertex_offset.0 as i32,
                         self.texture_index,
                     );
                 } else {
-                    let vertex_count = if self.model_data.vertex_offsets.len() > index + 1 {
-                        self.model_data.vertex_offsets[index + 1]
-                            - self.model_data.vertex_offsets[index]
-                    } else {
-                        self.model_data.vertices.len() - self.model_data.vertex_offsets[index]
-                    };
-
                     self.device.handle().cmd_draw(
                         *frame.command_buffer(),
-                        vertex_count as u32,
+                        vertex_offset.1 as u32,
                         1,
-                        self.model_data.vertex_offsets[index] as u32,
+                        vertex_offset.0 as u32,
                         self.texture_index,
                     );
                 }
@@ -664,10 +629,10 @@ impl Drop for Renderer {
             texture.destroy(&self.device);
         }
 
-        if let Some(index_buffer) = &mut self.index_buffer {
+        if let Some(index_buffer) = &mut self.model_data.index_buffer {
             index_buffer.destroy(&self.device);
         }
-        self.vertex_buffer.destroy(&self.device);
+        self.model_data.vertex_buffer.destroy(&self.device);
 
         self.pipeline.destroy(&self.device);
 
@@ -692,11 +657,13 @@ pub struct PushConstants {
     pub matrix: glm::Mat4,
 }
 
+/// Offsets take the form (start, count).
 pub struct ModelData {
-    vertices: Vec<Vertex>,
-    vertex_offsets: Vec<usize>,
-    indices: Vec<u32>,
-    index_offsets: Vec<usize>,
+    vertex_buffer: Buffer,
+    vertex_offsets: Vec<(usize, usize)>,
+    // glTF models may not provide indices.
+    index_buffer: Option<Buffer>,
+    index_offsets: Vec<(usize, usize)>,
     matrices: Vec<Option<glm::Mat4>>,
     textures: Vec<Image>,
     materials: Vec<MaterialData>,
@@ -739,8 +706,8 @@ pub fn load_model(device: &Device) -> Result<ModelData, Box<dyn Error>> {
 
     let mut vertices: Vec<Vertex> = vec![];
     let mut indices: Vec<u32> = vec![];
-    let mut vertex_offsets: Vec<usize> = vec![];
-    let mut index_offsets: Vec<usize> = vec![];
+    let mut vertex_offsets: Vec<(usize, usize)> = vec![];
+    let mut index_offsets: Vec<(usize, usize)> = vec![];
     let mut matrices: Vec<Option<glm::Mat4>> = vec![];
     let mut textures: Vec<Image> = vec![];
     let mut materials: Vec<MaterialData> = vec![];
@@ -853,7 +820,7 @@ pub fn load_model(device: &Device) -> Result<ModelData, Box<dyn Error>> {
                     }
                 }
 
-                vertex_offsets.push(vertices.len());
+                vertex_offsets.push((vertices.len(), positions.len()));
                 for (index, position) in positions.iter().enumerate() {
                     vertices.push(Vertex {
                         position: *position,
@@ -862,7 +829,7 @@ pub fn load_model(device: &Device) -> Result<ModelData, Box<dyn Error>> {
                     });
                 }
 
-                index_offsets.push(indices.len());
+                let start_index = indices.len();
                 if let Some(primitive_indices) = reader.read_indices() {
                     match primitive_indices {
                         gltf::mesh::util::ReadIndices::U8(i) => {
@@ -876,14 +843,29 @@ pub fn load_model(device: &Device) -> Result<ModelData, Box<dyn Error>> {
                         }
                     }
                 }
+
+                index_offsets.push((start_index, indices.len() - start_index));
             }
         };
     }
 
+    let vertex_buffer =
+        Buffer::new_with_data(device, ash::vk::BufferUsageFlags::VERTEX_BUFFER, &vertices)?;
+
+    let index_buffer = if indices.is_empty() {
+        None
+    } else {
+        Some(Buffer::new_with_data(
+            device,
+            ash::vk::BufferUsageFlags::INDEX_BUFFER,
+            &indices,
+        )?)
+    };
+
     Ok(ModelData {
-        vertices,
+        vertex_buffer,
         vertex_offsets,
-        indices,
+        index_buffer,
         index_offsets,
         matrices,
         textures,
