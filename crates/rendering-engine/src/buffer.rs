@@ -29,9 +29,9 @@ impl Buffer {
             .usage(usage)
             .sharing_mode(ash::vk::SharingMode::EXCLUSIVE);
 
-        let buffer = unsafe { device.handle().create_buffer(&buffer_info, None)? };
+        let buffer = unsafe { device.create_buffer(&buffer_info, None)? };
 
-        let memory_requirements = unsafe { device.handle().get_buffer_memory_requirements(buffer) };
+        let memory_requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
 
         let allocation_info = AllocationCreateDesc {
             name: "Buffer",
@@ -46,11 +46,7 @@ impl Buffer {
             .unwrap()
             .allocate(&allocation_info)?;
 
-        unsafe {
-            device
-                .handle()
-                .bind_buffer_memory(buffer, allocation.memory(), allocation.offset())?
-        };
+        unsafe { device.bind_buffer_memory(buffer, allocation.memory(), allocation.offset())? };
 
         Ok(Self {
             buffer_handle: buffer,
@@ -98,7 +94,7 @@ impl Buffer {
             device.perform_immediate_submission(|command_buffer| {
                 let buffer_region = ash::vk::BufferCopy::builder().size(data_size).build();
 
-                device.handle().cmd_copy_buffer(
+                device.cmd_copy_buffer(
                     command_buffer,
                     *staging_buffer.handle(),
                     *destination_buffer.handle(),
@@ -133,7 +129,7 @@ impl Destroy for Buffer {
                 .free(std::mem::take(&mut self.allocation))
                 .unwrap();
 
-            device.handle().destroy_buffer(self.buffer_handle, None);
+            device.destroy_buffer(self.buffer_handle, None);
         }
     }
 }

@@ -20,12 +20,10 @@ impl Surface {
         window: &dyn HasRawWindowHandle,
         instance: &Instance,
     ) -> Result<Self, Box<dyn Error>> {
-        let surface_loader =
-            ash::extensions::khr::Surface::new(instance.entry(), instance.handle());
+        let surface_loader = ash::extensions::khr::Surface::new(instance.entry(), instance);
 
-        let surface = unsafe {
-            ash_window::create_surface(instance.entry(), instance.handle(), window, None)?
-        };
+        let surface =
+            unsafe { ash_window::create_surface(instance.entry(), instance, window, None)? };
 
         Ok(Self {
             surface_loader,

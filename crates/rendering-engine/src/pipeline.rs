@@ -190,11 +190,8 @@ impl Pipeline {
             .push_constant_ranges(&push_constant_ranges)
             .set_layouts(&descriptor_set_layouts);
 
-        let pipeline_layout = unsafe {
-            device
-                .handle()
-                .create_pipeline_layout(&pipeline_layout_info, None)?
-        };
+        let pipeline_layout =
+            unsafe { device.create_pipeline_layout(&pipeline_layout_info, None)? };
 
         let depth_stencil_state_info = ash::vk::PipelineDepthStencilStateCreateInfo::builder()
             .depth_test_enable(true)
@@ -223,11 +220,7 @@ impl Pipeline {
             .build();
 
         let pipeline_results = unsafe {
-            device.handle().create_graphics_pipelines(
-                ash::vk::PipelineCache::null(),
-                &[pipeline_info],
-                None,
-            )
+            device.create_graphics_pipelines(ash::vk::PipelineCache::null(), &[pipeline_info], None)
         };
 
         // TODO: Figure out how to better handle this error.
@@ -261,13 +254,11 @@ impl Destroy for Pipeline {
     fn destroy(&mut self, device: &Device) {
         unsafe {
             for layout in self.descriptor_set_layouts.iter() {
-                device.handle().destroy_descriptor_set_layout(*layout, None);
+                device.destroy_descriptor_set_layout(*layout, None);
             }
 
-            device
-                .handle()
-                .destroy_pipeline_layout(self.pipeline_layout, None);
-            device.handle().destroy_pipeline(self.pipeline_handle, None);
+            device.destroy_pipeline_layout(self.pipeline_layout, None);
+            device.destroy_pipeline(self.pipeline_handle, None);
         }
     }
 }

@@ -26,8 +26,7 @@ impl Swapchain {
         preferred_present_mode: ash::vk::PresentModeKHR,
         old_swapchain: Option<&Swapchain>,
     ) -> Result<Self, Box<dyn Error>> {
-        let swapchain_loader =
-            ash::extensions::khr::Swapchain::new(instance.handle(), device.handle());
+        let swapchain_loader = ash::extensions::khr::Swapchain::new(instance, device);
 
         let supported_surface_formats = unsafe {
             surface.loader().get_physical_device_surface_formats(
@@ -151,7 +150,7 @@ impl Swapchain {
                         .build(),
                 );
 
-            let image_view = unsafe { device.handle().create_image_view(&image_view_info, None)? };
+            let image_view = unsafe { device.create_image_view(&image_view_info, None)? };
 
             swapchain_image_views.push(image_view);
         }
@@ -228,9 +227,7 @@ impl Destroy for Swapchain {
     fn destroy(&mut self, device: &Device) {
         unsafe {
             for &swapchain_image_view in self.image_views.iter() {
-                device
-                    .handle()
-                    .destroy_image_view(swapchain_image_view, None);
+                device.destroy_image_view(swapchain_image_view, None);
             }
 
             self.swapchain_loader

@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     ffi::CStr,
+    ops::Deref,
     sync::{Arc, Mutex},
 };
 
@@ -68,14 +69,13 @@ impl Device {
             .features(core_features)
             .build();
 
-        let physical_devices = unsafe { instance.handle().enumerate_physical_devices()? };
+        let physical_devices = unsafe { instance.enumerate_physical_devices()? };
 
         // Just select the first device that supports presentation, a graphics queue, and the required extensions.
         let mut graphics_family_index: Option<usize> = None;
         let physical_device = physical_devices.iter().find_map(|&device| {
             graphics_family_index = unsafe {
                 instance
-                    .handle()
                     .get_physical_device_queue_family_properties(device)
                     .iter()
                     .enumerate()
@@ -104,7 +104,6 @@ impl Device {
 
             let supports_required_extensions = unsafe {
                 let supported_extensions = instance
-                    .handle()
                     .enumerate_device_extension_properties(device)
                     .unwrap_or_default();
 
@@ -146,27 +145,19 @@ impl Device {
             .queue_create_infos(&queue_infos)
             .enabled_extension_names(&enabled_extensions);
 
-        let device = unsafe {
-            instance
-                .handle()
-                .create_device(physical_device, &device_info, None)?
-        };
+        let device = unsafe { instance.create_device(physical_device, &device_info, None)? };
 
         // TODO: Should the application be fetching queues instead of doing it here?
         let graphics_queue = unsafe { device.get_device_queue(graphics_family_index, 0) };
 
-        let device_properties = unsafe {
-            instance
-                .handle()
-                .get_physical_device_properties(physical_device)
-        };
+        let device_properties = unsafe { instance.get_physical_device_properties(physical_device) };
 
         let device_name = unsafe { CStr::from_ptr(device_properties.device_name.as_ptr()) };
 
         log::info!("Selected device: {}", device_name.to_str()?);
 
         let memory_allocator_info = AllocatorCreateDesc {
-            instance: instance.handle().clone(),
+            instance: instance.deref().clone(),
             physical_device,
             device: device.clone(),
             debug_settings: Default::default(),
@@ -321,5 +312,13 @@ impl Drop for Device {
 
             self.device_handle.destroy_device(None);
         }
+    }
+}
+
+impl Deref for Device {
+    type Target = ash::Device;
+
+    fn deref(&self) -> &Self::Target {
+        self.handle()
     }
 }

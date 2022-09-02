@@ -21,37 +21,23 @@ impl FrameResources {
             .queue_family_index(device.graphics_family_index())
             .flags(ash::vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
 
-        let command_pool = unsafe {
-            device
-                .handle()
-                .create_command_pool(&command_pool_info, None)?
-        };
+        let command_pool = unsafe { device.create_command_pool(&command_pool_info, None)? };
 
         let command_buffer_info = ash::vk::CommandBufferAllocateInfo::builder()
             .command_pool(command_pool)
             .level(ash::vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(1);
 
-        let command_buffer = unsafe {
-            device
-                .handle()
-                .allocate_command_buffers(&command_buffer_info)?[0]
-        };
+        let command_buffer = unsafe { device.allocate_command_buffers(&command_buffer_info)?[0] };
 
-        let image_acquired_semaphore = unsafe {
-            device
-                .handle()
-                .create_semaphore(&ash::vk::SemaphoreCreateInfo::default(), None)?
-        };
+        let image_acquired_semaphore =
+            unsafe { device.create_semaphore(&ash::vk::SemaphoreCreateInfo::default(), None)? };
 
-        let render_finished_semaphore = unsafe {
-            device
-                .handle()
-                .create_semaphore(&ash::vk::SemaphoreCreateInfo::default(), None)?
-        };
+        let render_finished_semaphore =
+            unsafe { device.create_semaphore(&ash::vk::SemaphoreCreateInfo::default(), None)? };
 
         let render_finished_fence = unsafe {
-            device.handle().create_fence(
+            device.create_fence(
                 &ash::vk::FenceCreateInfo::builder().flags(ash::vk::FenceCreateFlags::SIGNALED),
                 None,
             )?
@@ -79,7 +65,7 @@ impl FrameResources {
         usage_flags: ash::vk::CommandBufferUsageFlags,
     ) -> Result<(), Box<dyn Error>> {
         unsafe {
-            Ok(device.handle().begin_command_buffer(
+            Ok(device.begin_command_buffer(
                 self.command_buffer,
                 &ash::vk::CommandBufferBeginInfo::builder().flags(usage_flags),
             )?)
@@ -87,7 +73,7 @@ impl FrameResources {
     }
 
     pub fn end_command_buffer(&self, device: &Device) -> Result<(), Box<dyn Error>> {
-        unsafe { Ok(device.handle().end_command_buffer(self.command_buffer)?) }
+        unsafe { Ok(device.end_command_buffer(self.command_buffer)?) }
     }
 
     pub fn image_acquired_semaphore(&self) -> &ash::vk::Semaphore {
@@ -103,26 +89,16 @@ impl FrameResources {
     }
 
     pub fn await_render_finished_fence(&self, device: &Device) -> Result<(), Box<dyn Error>> {
-        unsafe {
-            Ok(device.handle().wait_for_fences(
-                &[self.render_finished_fence],
-                true,
-                std::u64::MAX,
-            )?)
-        }
+        unsafe { Ok(device.wait_for_fences(&[self.render_finished_fence], true, std::u64::MAX)?) }
     }
 
     pub fn reset_render_finished_fence(&self, device: &Device) -> Result<(), Box<dyn Error>> {
-        unsafe {
-            Ok(device
-                .handle()
-                .reset_fences(&[self.render_finished_fence])?)
-        }
+        unsafe { Ok(device.reset_fences(&[self.render_finished_fence])?) }
     }
 
     pub fn reset_command_buffer(&self, device: &Device) -> Result<(), Box<dyn Error>> {
         unsafe {
-            Ok(device.handle().reset_command_buffer(
+            Ok(device.reset_command_buffer(
                 self.command_buffer,
                 ash::vk::CommandBufferResetFlags::empty(),
             )?)
@@ -149,21 +125,13 @@ impl FrameResources {
 impl Destroy for FrameResources {
     fn destroy(&mut self, device: &Device) {
         unsafe {
-            device
-                .handle()
-                .destroy_semaphore(self.image_acquired_semaphore, None);
+            device.destroy_semaphore(self.image_acquired_semaphore, None);
 
-            device
-                .handle()
-                .destroy_semaphore(self.render_finished_semaphore, None);
+            device.destroy_semaphore(self.render_finished_semaphore, None);
 
-            device
-                .handle()
-                .destroy_fence(self.render_finished_fence, None);
+            device.destroy_fence(self.render_finished_fence, None);
 
-            device
-                .handle()
-                .destroy_command_pool(self.command_pool, None);
+            device.destroy_command_pool(self.command_pool, None);
         }
     }
 }

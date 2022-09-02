@@ -114,21 +114,14 @@ impl Renderer {
             .max_sets(8)
             .pool_sizes(&descriptor_pool_sizes);
 
-        let descriptor_pool = unsafe {
-            device
-                .handle()
-                .create_descriptor_pool(&descriptor_pool_info, None)?
-        };
+        let descriptor_pool =
+            unsafe { device.create_descriptor_pool(&descriptor_pool_info, None)? };
 
         let set_allocate_info = ash::vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(descriptor_pool)
             .set_layouts(pipeline.descriptor_set_layouts());
 
-        let descriptor_sets = unsafe {
-            device
-                .handle()
-                .allocate_descriptor_sets(&set_allocate_info)?
-        };
+        let descriptor_sets = unsafe { device.allocate_descriptor_sets(&set_allocate_info)? };
 
         let global_descriptor_set = descriptor_sets[0];
         let texture_descriptor_set = descriptor_sets[1];
@@ -160,7 +153,7 @@ impl Renderer {
             .address_mode_v(ash::vk::SamplerAddressMode::REPEAT)
             .address_mode_w(ash::vk::SamplerAddressMode::REPEAT);
 
-        let sampler = unsafe { device.handle().create_sampler(&sampler_info, None)? };
+        let sampler = unsafe { device.create_sampler(&sampler_info, None)? };
 
         let image_infos = model_data
             .textures
@@ -184,7 +177,6 @@ impl Renderer {
 
         unsafe {
             device
-                .handle()
                 .update_descriptor_sets(&[global_descriptor_write, texture_descriptor_write], &[]);
         }
 
@@ -375,7 +367,6 @@ impl Renderer {
 
         unsafe {
             self.device
-                .handle()
                 .cmd_pipeline_barrier2(*frame.command_buffer(), &dependency_info);
         }
 
@@ -422,7 +413,6 @@ impl Renderer {
 
         unsafe {
             self.device
-                .handle()
                 .cmd_begin_rendering(*frame.command_buffer(), &rendering_info);
 
             // Use a flipped (negative height) viewport.
@@ -436,7 +426,6 @@ impl Renderer {
                 .build();
 
             self.device
-                .handle()
                 .cmd_set_viewport(*frame.command_buffer(), 0, &[viewport]);
 
             let scissor = ash::vk::Rect2D::builder()
@@ -448,16 +437,15 @@ impl Renderer {
                 .build();
 
             self.device
-                .handle()
                 .cmd_set_scissor(*frame.command_buffer(), 0, &[scissor]);
 
-            self.device.handle().cmd_bind_pipeline(
+            self.device.cmd_bind_pipeline(
                 *frame.command_buffer(),
                 ash::vk::PipelineBindPoint::GRAPHICS,
                 *self.pipeline.handle(),
             );
 
-            self.device.handle().cmd_bind_descriptor_sets(
+            self.device.cmd_bind_descriptor_sets(
                 *frame.command_buffer(),
                 ash::vk::PipelineBindPoint::GRAPHICS,
                 *self.pipeline.layout(),
@@ -466,7 +454,7 @@ impl Renderer {
                 &[],
             );
 
-            self.device.handle().cmd_bind_vertex_buffers(
+            self.device.cmd_bind_vertex_buffers(
                 *frame.command_buffer(),
                 0,
                 &[*self.model_data.vertex_buffer.handle()],
@@ -474,7 +462,7 @@ impl Renderer {
             );
 
             if let Some(index_buffer) = &self.model_data.index_buffer {
-                self.device.handle().cmd_bind_index_buffer(
+                self.device.cmd_bind_index_buffer(
                     *frame.command_buffer(),
                     *index_buffer.handle(),
                     0,
@@ -504,7 +492,7 @@ impl Renderer {
                         std::mem::size_of::<PushConstants>() / std::mem::size_of::<u8>(),
                     );
 
-                    self.device.handle().cmd_push_constants(
+                    self.device.cmd_push_constants(
                         *frame.command_buffer(),
                         *self.pipeline.layout(),
                         ash::vk::ShaderStageFlags::VERTEX,
@@ -514,7 +502,7 @@ impl Renderer {
                 }
 
                 if self.model_data.index_buffer.is_some() {
-                    self.device.handle().cmd_draw_indexed(
+                    self.device.cmd_draw_indexed(
                         *frame.command_buffer(),
                         self.model_data.index_offsets[index].1 as u32,
                         1,
@@ -523,7 +511,7 @@ impl Renderer {
                         self.texture_index,
                     );
                 } else {
-                    self.device.handle().cmd_draw(
+                    self.device.cmd_draw(
                         *frame.command_buffer(),
                         vertex_offset.1 as u32,
                         1,
@@ -533,9 +521,7 @@ impl Renderer {
                 }
             }
 
-            self.device
-                .handle()
-                .cmd_end_rendering(*frame.command_buffer());
+            self.device.cmd_end_rendering(*frame.command_buffer());
         }
 
         frame.end_command_buffer(&self.device)?;
@@ -549,7 +535,7 @@ impl Renderer {
 
         let presentation_queue = self.device.graphics_queue();
         unsafe {
-            self.device.handle().queue_submit(
+            self.device.queue_submit(
                 *presentation_queue,
                 &[submit_info],
                 *frame.render_finished_fence(),
@@ -610,7 +596,7 @@ impl Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
-            self.device.handle().device_wait_idle().unwrap();
+            self.device.device_wait_idle().unwrap();
         }
 
         // Destroy any objects that need manual destruction.
@@ -619,9 +605,8 @@ impl Drop for Renderer {
         self.material_buffer.destroy(&self.device);
 
         unsafe {
-            self.device.handle().destroy_sampler(self.sampler, None);
+            self.device.destroy_sampler(self.sampler, None);
             self.device
-                .handle()
                 .destroy_descriptor_pool(self.descriptor_pool, None);
         }
 

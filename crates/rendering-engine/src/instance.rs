@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     ffi::{c_void, CStr, CString},
+    ops::Deref,
 };
 
 use raw_window_handle::HasRawWindowHandle;
@@ -206,6 +207,14 @@ impl Drop for Instance {
             self.debug_messenger = None;
             self.instance_handle.destroy_instance(None);
         }
+    }
+}
+
+impl Deref for Instance {
+    type Target = ash::Instance;
+
+    fn deref(&self) -> &Self::Target {
+        self.handle()
     }
 }
 

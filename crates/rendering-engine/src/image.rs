@@ -43,9 +43,9 @@ impl Image {
             .sharing_mode(ash::vk::SharingMode::EXCLUSIVE)
             .initial_layout(ash::vk::ImageLayout::UNDEFINED);
 
-        let image = unsafe { device.handle().create_image(&image_info, None)? };
+        let image = unsafe { device.create_image(&image_info, None)? };
 
-        let memory_requirements = unsafe { device.handle().get_image_memory_requirements(image) };
+        let memory_requirements = unsafe { device.get_image_memory_requirements(image) };
 
         let allocation_info = gpu_allocator::vulkan::AllocationCreateDesc {
             name: "Image",
@@ -60,11 +60,7 @@ impl Image {
             .unwrap()
             .allocate(&allocation_info)?;
 
-        unsafe {
-            device
-                .handle()
-                .bind_image_memory(image, allocation.memory(), allocation.offset())?
-        }
+        unsafe { device.bind_image_memory(image, allocation.memory(), allocation.offset())? }
 
         let subresource_range = ash::vk::ImageSubresourceRange::builder()
             .aspect_mask(aspect_mask)
@@ -81,7 +77,7 @@ impl Image {
             .format(format)
             .subresource_range(subresource_range);
 
-        let image_view = unsafe { device.handle().create_image_view(&image_view_info, None)? };
+        let image_view = unsafe { device.create_image_view(&image_view_info, None)? };
 
         Ok(Self {
             image_handle: image,
@@ -155,7 +151,7 @@ impl Image {
 
             // Write the data in the staging buffer to the image.
             unsafe {
-                device.handle().cmd_copy_buffer_to_image(
+                device.cmd_copy_buffer_to_image(
                     command_buffer,
                     *staging_buffer.handle(),
                     *image.handle(),
@@ -203,7 +199,7 @@ impl Image {
 impl Destroy for Image {
     fn destroy(&mut self, device: &Device) {
         unsafe {
-            device.handle().destroy_image_view(self.view, None);
+            device.destroy_image_view(self.view, None);
 
             device
                 .memory_allocator()
@@ -212,7 +208,7 @@ impl Destroy for Image {
                 .free(std::mem::take(&mut self.allocation))
                 .unwrap();
 
-            device.handle().destroy_image(self.image_handle, None);
+            device.destroy_image(self.image_handle, None);
         }
     }
 }

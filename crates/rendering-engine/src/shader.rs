@@ -31,7 +31,7 @@ impl Shader {
 
         let module_info = ash::vk::ShaderModuleCreateInfo::builder().code(&bytecode);
 
-        let module = unsafe { device.handle().create_shader_module(&module_info, None)? };
+        let module = unsafe { device.create_shader_module(&module_info, None)? };
 
         let reflection_module = spirv_reflect::ShaderModule::load_u32_data(&bytecode)?;
 
@@ -129,11 +129,8 @@ impl Shader {
                 .flags(ash::vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
                 .bindings(set_bindings.as_slice());
 
-            let set_layout = unsafe {
-                device
-                    .handle()
-                    .create_descriptor_set_layout(&set_layout_info, None)?
-            };
+            let set_layout =
+                unsafe { device.create_descriptor_set_layout(&set_layout_info, None)? };
 
             descriptor_set_layouts.push(set_layout);
         }
@@ -179,7 +176,7 @@ impl Shader {
 impl Destroy for Shader {
     fn destroy(&mut self, device: &Device) {
         unsafe {
-            device.handle().destroy_shader_module(self.module, None);
+            device.destroy_shader_module(self.module, None);
         }
     }
 }
