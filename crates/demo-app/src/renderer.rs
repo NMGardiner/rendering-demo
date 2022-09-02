@@ -14,8 +14,6 @@ use rendering_engine::*;
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 pub struct Renderer {
-    texture_index: u32,
-
     camera: Camera,
 
     window_resize_flag: bool,
@@ -184,7 +182,6 @@ impl Renderer {
         camera.set_position(0.0, 0.0, 2.0);
 
         Ok(Renderer {
-            texture_index: 0,
             camera,
             should_render_flag: true,
             window_resize_flag: false,
@@ -226,35 +223,6 @@ impl Renderer {
                     } else {
                         self.should_render_flag = true;
                         self.window_resize_flag = true;
-                    }
-                }
-                WindowEvent::KeyboardInput { input, .. } => {
-                    if let winit::event::KeyboardInput {
-                        state: winit::event::ElementState::Pressed,
-                        virtual_keycode: Some(keycode),
-                        ..
-                    } = input
-                    {
-                        match keycode {
-                            winit::event::VirtualKeyCode::W => {
-                                self.camera.translate(0.0, 0.0, 0.1);
-                            }
-                            winit::event::VirtualKeyCode::A => {
-                                self.camera.translate(-0.1, 0.0, 0.0);
-                            }
-                            winit::event::VirtualKeyCode::S => {
-                                self.camera.translate(0.0, 0.0, -0.1);
-                            }
-                            winit::event::VirtualKeyCode::D => {
-                                self.camera.translate(0.1, 0.0, 0.0);
-                            }
-                            winit::event::VirtualKeyCode::E => {
-                                // Cycle through the model's textures.
-                                self.texture_index = (self.texture_index + 1)
-                                    % self.model_data.textures.len() as u32;
-                            }
-                            _ => {}
-                        }
                     }
                 }
                 _ => (),
@@ -508,7 +476,7 @@ impl Renderer {
                         1,
                         self.model_data.index_offsets[index].0 as u32,
                         vertex_offset.0 as i32,
-                        self.texture_index,
+                        0,
                     );
                 } else {
                     self.device.cmd_draw(
@@ -516,7 +484,7 @@ impl Renderer {
                         vertex_offset.1 as u32,
                         1,
                         vertex_offset.0 as u32,
-                        self.texture_index,
+                        0,
                     );
                 }
             }

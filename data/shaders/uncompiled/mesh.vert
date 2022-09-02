@@ -5,7 +5,6 @@ layout(location = 1) in vec3 in_normal;
 layout(location = 2) in vec2 in_texture_coords;
 
 layout(location = 0) out vec2 out_texture_coords;
-layout(location = 1) out int out_texture_index;
 
 layout(push_constant) uniform constants {
     mat4 matrix;
@@ -14,5 +13,4 @@ layout(push_constant) uniform constants {
 void main() {
     gl_Position = push_constants.matrix * vec4(in_position, 1.0);
     out_texture_coords = in_texture_coords;
-    out_texture_index =  gl_InstanceIndex;
 }
