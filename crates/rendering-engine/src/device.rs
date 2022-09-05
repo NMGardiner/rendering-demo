@@ -135,14 +135,13 @@ impl Device {
         let graphics_family_index = graphics_family_index.unwrap() as u32;
 
         // Only a single (graphics) queue is used for now, but there needs to be one of these per queue.
-        let queue_infos = [ash::vk::DeviceQueueCreateInfo::builder()
+        let queue_info = ash::vk::DeviceQueueCreateInfo::builder()
             .queue_family_index(graphics_family_index)
-            .queue_priorities(&[1.0])
-            .build()];
+            .queue_priorities(&[1.0]);
 
         let device_info = ash::vk::DeviceCreateInfo::builder()
             .push_next(&mut required_features)
-            .queue_create_infos(&queue_infos)
+            .queue_create_infos(std::slice::from_ref(&queue_info))
             .enabled_extension_names(&enabled_extensions);
 
         let device = unsafe { instance.create_device(physical_device, &device_info, None)? };

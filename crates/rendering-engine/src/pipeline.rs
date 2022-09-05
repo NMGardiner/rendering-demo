@@ -166,7 +166,7 @@ impl Pipeline {
             .rasterization_samples(ash::vk::SampleCountFlags::TYPE_1);
 
         // TODO: Configurable per-attachment blend state.
-        let attachment_states = [ash::vk::PipelineColorBlendAttachmentState::builder()
+        let blend_attachment_state = ash::vk::PipelineColorBlendAttachmentState::builder()
             .color_write_mask(
                 ash::vk::ColorComponentFlags::R
                     | ash::vk::ColorComponentFlags::G
@@ -179,12 +179,11 @@ impl Pipeline {
             .dst_alpha_blend_factor(ash::vk::BlendFactor::ZERO)
             .color_blend_op(ash::vk::BlendOp::ADD)
             .src_color_blend_factor(ash::vk::BlendFactor::SRC_ALPHA)
-            .dst_color_blend_factor(ash::vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
-            .build()];
+            .dst_color_blend_factor(ash::vk::BlendFactor::ONE_MINUS_SRC_ALPHA);
 
         let colour_blend_state_info = ash::vk::PipelineColorBlendStateCreateInfo::builder()
             .logic_op_enable(false)
-            .attachments(&attachment_states);
+            .attachments(std::slice::from_ref(&blend_attachment_state));
 
         let pipeline_layout_info = ash::vk::PipelineLayoutCreateInfo::builder()
             .push_constant_ranges(&push_constant_ranges)

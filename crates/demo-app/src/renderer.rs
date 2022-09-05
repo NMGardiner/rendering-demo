@@ -131,19 +131,17 @@ impl Renderer {
             &test_mesh.materials,
         )?;
 
-        let buffer_infos = [ash::vk::DescriptorBufferInfo::builder()
+        let buffer_info = ash::vk::DescriptorBufferInfo::builder()
             .buffer(*material_buffer.handle())
             .offset(0)
-            .range((std::mem::size_of::<MaterialData>() * test_mesh.materials.len()) as u64)
-            .build()];
+            .range((std::mem::size_of::<MaterialData>() * test_mesh.materials.len()) as u64);
 
         let global_descriptor_write = ash::vk::WriteDescriptorSet::builder()
             .dst_binding(0)
             .descriptor_type(ash::vk::DescriptorType::STORAGE_BUFFER)
             .dst_set(global_descriptor_set)
             .dst_array_element(0)
-            .buffer_info(&buffer_infos)
-            .build();
+            .buffer_info(std::slice::from_ref(&buffer_info));
 
         let sampler_info = ash::vk::SamplerCreateInfo::builder()
             .mag_filter(ash::vk::Filter::NEAREST)
@@ -171,12 +169,13 @@ impl Renderer {
             .descriptor_type(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .dst_set(texture_descriptor_set)
             .dst_array_element(0)
-            .image_info(&image_infos)
-            .build();
+            .image_info(&image_infos);
 
         unsafe {
-            device
-                .update_descriptor_sets(&[global_descriptor_write, texture_descriptor_write], &[]);
+            device.update_descriptor_sets(
+                &[*global_descriptor_write, *texture_descriptor_write],
+                &[],
+            );
         }
 
         let mut camera = Camera::new();
@@ -373,8 +372,7 @@ impl Renderer {
                 color: ash::vk::ClearColorValue {
                     float32: [0.1, 0.1, 0.1, 1.0],
                 },
-            })
-            .build();
+            });
 
         let depth_attachment_rendering_info = ash::vk::RenderingAttachmentInfoKHR::builder()
             .image_view(*self.depth_image.view())
@@ -387,8 +385,7 @@ impl Renderer {
                     depth: 1.0,
                     stencil: 0,
                 },
-            })
-            .build();
+            });
 
         let render_area = ash::vk::Rect2D::builder()
             .extent(self.swapchain.extent())
@@ -400,9 +397,8 @@ impl Renderer {
             .render_area(render_area)
             .layer_count(1)
             .view_mask(0)
-            .color_attachments(&[colour_attachment_rendering_info])
-            .depth_attachment(&depth_attachment_rendering_info)
-            .build();
+            .color_attachments(std::slice::from_ref(&colour_attachment_rendering_info))
+            .depth_attachment(&depth_attachment_rendering_info);
 
         unsafe {
             self.device
@@ -415,22 +411,23 @@ impl Renderer {
                 .width(self.swapchain.extent().width as f32)
                 .height(-(self.swapchain.extent().height as f32))
                 .min_depth(0.0)
-                .max_depth(1.0)
-                .build();
+                .max_depth(1.0);
 
-            self.device
-                .cmd_set_viewport(*frame.command_buffer(), 0, &[viewport]);
+            self.device.cmd_set_viewport(
+                *frame.command_buffer(),
+                0,
+                std::slice::from_ref(&viewport),
+            );
 
             let scissor = ash::vk::Rect2D::builder()
                 .offset(ash::vk::Offset2D { x: 0, y: 0 })
                 .extent(ash::vk::Extent2D {
                     width: self.swapchain.extent().width,
                     height: self.swapchain.extent().height,
-                })
-                .build();
+                });
 
             self.device
-                .cmd_set_scissor(*frame.command_buffer(), 0, &[scissor]);
+                .cmd_set_scissor(*frame.command_buffer(), 0, std::slice::from_ref(&scissor));
 
             self.device.cmd_bind_pipeline(
                 *frame.command_buffer(),
@@ -489,17 +486,16 @@ impl Renderer {
         frame.end_command_buffer(&self.device)?;
 
         let submit_info = ash::vk::SubmitInfo::builder()
-            .wait_semaphores(&[*frame.image_acquired_semaphore()])
+            .wait_semaphores(std::slice::from_ref(frame.image_acquired_semaphore()))
             .wait_dst_stage_mask(&[ash::vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
-            .command_buffers(&[*frame.command_buffer()])
-            .signal_semaphores(&[*frame.render_finished_semaphore()])
-            .build();
+            .command_buffers(std::slice::from_ref(frame.command_buffer()))
+            .signal_semaphores(std::slice::from_ref(frame.render_finished_semaphore()));
 
         let presentation_queue = self.device.graphics_queue();
         unsafe {
             self.device.queue_submit(
                 *presentation_queue,
-                &[submit_info],
+                std::slice::from_ref(&submit_info),
                 *frame.render_finished_fence(),
             )?;
         }
