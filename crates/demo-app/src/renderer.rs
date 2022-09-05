@@ -225,6 +225,30 @@ impl Renderer {
                         self.window_resize_flag = true;
                     }
                 }
+                WindowEvent::KeyboardInput { input, .. } => {
+                    if let winit::event::KeyboardInput {
+                        state: winit::event::ElementState::Pressed,
+                        virtual_keycode: Some(keycode),
+                        ..
+                    } = input
+                    {
+                        match keycode {
+                            winit::event::VirtualKeyCode::W => {
+                                self.camera.translate(0.0, 0.0, 0.1);
+                            }
+                            winit::event::VirtualKeyCode::A => {
+                                self.camera.translate(-0.1, 0.0, 0.0);
+                            }
+                            winit::event::VirtualKeyCode::S => {
+                                self.camera.translate(0.0, 0.0, -0.1);
+                            }
+                            winit::event::VirtualKeyCode::D => {
+                                self.camera.translate(0.1, 0.0, 0.0);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 _ => (),
             },
             Event::DeviceEvent { event, .. } => match event {
