@@ -9,7 +9,7 @@ use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
+    window::{CursorGrabMode, WindowBuilder},
 };
 
 fn main() {
@@ -25,7 +25,7 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    window.set_cursor_grab(true).unwrap();
+    window.set_cursor_grab(CursorGrabMode::Confined).unwrap();
     window.set_cursor_visible(false);
 
     let mut renderer = Renderer::new(&window).unwrap();

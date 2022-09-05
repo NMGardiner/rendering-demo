@@ -12,5 +12,4 @@ gltf = "1.0.0"
 log = "0.4.17"
 nalgebra-glm = "0.17.0"
 rendering-engine = { path = "../rendering-engine" }
-# Using winit 0.27.0 onwards requires a version of raw-window-handle which causes conflicts.
-winit = "0.26.0"
+winit = "0.27.2"
