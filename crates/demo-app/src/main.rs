@@ -1,5 +1,7 @@
 mod camera;
 
+mod mesh;
+
 mod renderer;
 use renderer::*;
 
