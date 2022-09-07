@@ -95,7 +95,12 @@ impl Renderer {
         vert_shader.destroy(&device);
         frag_shader.destroy(&device);
 
-        let test_mesh = Mesh::new(&device, r"./data/assets/DamagedHelmet/DamagedHelmet.gltf")?;
+        let test_mesh = Mesh::new(
+            &device,
+            r"./data/assets/fox/Fox.gltf",
+            glm::vec3(0.0, -1.0, 0.0),
+            0.01,
+        )?;
 
         let descriptor_pool_sizes = [
             ash::vk::DescriptorPoolSize::builder()

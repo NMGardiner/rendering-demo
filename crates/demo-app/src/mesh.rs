@@ -66,11 +66,17 @@ pub struct Mesh {
     pub matrices: Vec<Option<glm::Mat4>>,
     pub textures: Vec<Image>,
     pub materials: Vec<MaterialData>,
+    pub model_transform: glm::Mat4,
 }
 
 impl Mesh {
     /// Load a mesh from a .gltf/.glb file at the given path, creating the necessary textures.
-    pub fn new(device: &Device, path: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn new(
+        device: &Device,
+        path: &str,
+        position: glm::Vec3,
+        scale: f32,
+    ) -> Result<Self, Box<dyn Error>> {
         let (document, buffers, images) = gltf::import(Path::new(path))?;
 
         let mut vertices: Vec<Vertex> = vec![];
@@ -234,6 +240,10 @@ impl Mesh {
             )?)
         };
 
+        // Translation * scale.
+        let model_transform = glm::translate(&glm::Mat4::identity(), &position)
+            * glm::scale(&glm::Mat4::identity(), &glm::vec3(scale, scale, scale));
+
         Ok(Self {
             vertex_buffer,
             vertex_offsets,
@@ -242,6 +252,7 @@ impl Mesh {
             matrices,
             textures,
             materials,
+            model_transform,
         })
     }
 }
@@ -257,7 +268,7 @@ impl Draw for Mesh {
         for (index, vertex_offset) in self.vertex_offsets.iter().enumerate() {
             if let Some(matrix) = self.matrices[index] {
                 let push_constants = PushConstants {
-                    matrix: pv_matrix * matrix,
+                    matrix: pv_matrix * (self.model_transform * matrix),
                 };
 
                 let push_constants_slice = unsafe {
