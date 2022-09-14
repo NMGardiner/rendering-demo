@@ -148,6 +148,10 @@ impl Renderer {
             .dst_array_element(0)
             .buffer_info(std::slice::from_ref(&buffer_info));
 
+        unsafe {
+            device.update_descriptor_sets(std::slice::from_ref(&global_descriptor_write), &[]);
+        }
+
         let sampler_info = ash::vk::SamplerCreateInfo::builder()
             .mag_filter(ash::vk::Filter::NEAREST)
             .min_filter(ash::vk::Filter::NEAREST)
@@ -157,30 +161,29 @@ impl Renderer {
 
         let sampler = unsafe { device.create_sampler(&sampler_info, None)? };
 
-        let image_infos = test_mesh
-            .textures
-            .iter()
-            .map(|texture| {
-                ash::vk::DescriptorImageInfo::builder()
-                    .image_layout(ash::vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                    .image_view(*texture.view())
-                    .sampler(sampler)
-                    .build()
-            })
-            .collect::<Vec<_>>();
+        if !test_mesh.textures.is_empty() {
+            let image_infos = test_mesh
+                .textures
+                .iter()
+                .map(|texture| {
+                    ash::vk::DescriptorImageInfo::builder()
+                        .image_layout(ash::vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                        .image_view(*texture.view())
+                        .sampler(sampler)
+                        .build()
+                })
+                .collect::<Vec<_>>();
 
-        let texture_descriptor_write = ash::vk::WriteDescriptorSet::builder()
-            .dst_binding(0)
-            .descriptor_type(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .dst_set(texture_descriptor_set)
-            .dst_array_element(0)
-            .image_info(&image_infos);
+            let texture_descriptor_write = ash::vk::WriteDescriptorSet::builder()
+                .dst_binding(0)
+                .descriptor_type(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .dst_set(texture_descriptor_set)
+                .dst_array_element(0)
+                .image_info(&image_infos);
 
-        unsafe {
-            device.update_descriptor_sets(
-                &[*global_descriptor_write, *texture_descriptor_write],
-                &[],
-            );
+            unsafe {
+                device.update_descriptor_sets(std::slice::from_ref(&texture_descriptor_write), &[]);
+            }
         }
 
         let mut camera = Camera::new();
