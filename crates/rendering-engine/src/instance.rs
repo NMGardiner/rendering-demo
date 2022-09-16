@@ -11,7 +11,8 @@ pub struct InstanceBuilder<'a> {
     application_name: String,
     application_version: u32,
     window_handle: Option<&'a dyn HasRawWindowHandle>,
-    enable_validation_layers: bool,
+    layers: Vec<CString>,
+    extensions: Vec<&'a CStr>,
 }
 
 impl<'a> InstanceBuilder<'a> {
@@ -27,15 +28,26 @@ impl<'a> InstanceBuilder<'a> {
         self
     }
 
-    /// Bind a window handle to the renderer instance.
+    /// Bind a window handle to the renderer instance. The necessary extensions will be enabled - do not enable
+    /// them manually.
     pub fn window_handle(mut self, window_handle: &'a dyn HasRawWindowHandle) -> Self {
         self.window_handle = Some(window_handle);
         self
     }
 
-    /// Set whether Vulkan's validation layers should be enabled or not.
-    pub fn enable_validation_layers(mut self, enable_validation_layers: bool) -> Self {
-        self.enable_validation_layers = enable_validation_layers;
+    /// Add the given layer names to be enabled.
+    pub fn with_layers(mut self, layers: &[&str]) -> Self {
+        self.layers.extend(
+            layers
+                .iter()
+                .map(|&layer| CString::new(layer).unwrap_or_default()),
+        );
+        self
+    }
+
+    /// Add the given extension names to be enabled.
+    pub fn with_extensions(mut self, extensions: &'a [&'a CStr]) -> Self {
+        self.extensions.extend(extensions);
         self
     }
 
@@ -53,7 +65,8 @@ impl<'a> Default for InstanceBuilder<'a> {
             application_name: String::from(""),
             application_version: ash::vk::make_api_version(0, 1, 0, 0),
             window_handle: None,
-            enable_validation_layers: false,
+            layers: vec![],
+            extensions: vec![],
         }
     }
 }
@@ -80,7 +93,7 @@ impl Instance {
     /// This function can error if `ash` fails to create the entry, instance, or debug messenger,
     /// if `ash` fails to enumerate the supported instance layers/extensions, or if `ash_window`
     /// fails to enumerate the required window extensions.
-    pub fn new(builder: InstanceBuilder) -> Result<Self, Box<dyn Error>> {
+    pub fn new(mut builder: InstanceBuilder) -> Result<Self, Box<dyn Error>> {
         let entry = unsafe { ash::Entry::load()? };
 
         // Catch any nul bytes in the given application string.
@@ -103,30 +116,20 @@ impl Instance {
             .engine_version(ash::vk::make_api_version(0, 0, 1, 0))
             .api_version(ash::vk::API_VERSION_1_3);
 
-        // No always-enabled layers for now.
-        let mut requested_layers = vec![];
-
-        if builder.enable_validation_layers {
-            requested_layers.push(CString::new("VK_LAYER_KHRONOS_validation")?);
-        }
-
         // Keep only the supported layers to enable.
-        drop_unsupported_layers(&entry, &mut requested_layers)?;
+        drop_unsupported_layers(&entry, &mut builder.layers)?;
 
-        let enabled_layers = requested_layers
+        // The InstanceCreateInfo needs the layer and extension names as a *const c_char slice.
+        let enabled_layers = builder
+            .layers
             .iter()
             .map(|layer| layer.as_ptr())
             .collect::<Vec<_>>();
 
-        let mut required_extensions = vec![
-            // Required for dynamic rendering.
-            ash::extensions::khr::GetPhysicalDeviceProperties2::name(),
-        ];
-
         // If there's a window attached, add the required window extensions.
-        if builder.window_handle.is_some() {
-            required_extensions.append(
-                ash_window::enumerate_required_extensions(builder.window_handle.unwrap())?
+        if let Some(window_handle) = builder.window_handle {
+            builder.extensions.append(
+                ash_window::enumerate_required_extensions(window_handle)?
                     .iter()
                     .map(|&extension_name| unsafe { CStr::from_ptr(extension_name) })
                     .collect::<Vec<_>>()
@@ -134,17 +137,13 @@ impl Instance {
             )
         }
 
-        // If validation layers are enabled, add the extension for the debug messenger.
-        if builder.enable_validation_layers {
-            required_extensions.push(ash::extensions::ext::DebugUtils::name())
-        }
-
-        if !verify_extension_support(&entry, &required_extensions)? {
+        if !verify_extension_support(&entry, &builder.extensions)? {
             return Err("One or more required instance extensions are unsupported. Initialisation can not continue.".to_string().into());
         }
 
         // The InstanceCreateInfo needs the layer and extension names as a *const c_char slice.
-        let enabled_extensions = required_extensions
+        let enabled_extensions = builder
+            .extensions
             .iter()
             .map(|extension| extension.as_ptr())
             .collect::<Vec<_>>();
@@ -169,13 +168,17 @@ impl Instance {
             .pfn_user_callback(Some(debug_callback))
             .user_data(std::ptr::null_mut());
 
-        if builder.enable_validation_layers {
+        let create_debug_messenger = builder
+            .extensions
+            .contains(&ash::extensions::ext::DebugUtils::name());
+
+        if create_debug_messenger {
             instance_info = instance_info.push_next(&mut debug_messenger_info);
         }
 
         let instance = unsafe { entry.create_instance(&instance_info, None)? };
 
-        let debug_messenger = if builder.enable_validation_layers {
+        let debug_messenger = if create_debug_messenger {
             Some(DebugMessenger::new(
                 &entry,
                 &instance,

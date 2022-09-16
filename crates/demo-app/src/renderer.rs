@@ -46,7 +46,15 @@ impl Renderer {
             .application_name("Rendering Demo")
             .application_version(0, 1, 0)
             .window_handle(&window)
-            .enable_validation_layers(cfg!(debug_assertions))
+            .with_layers(&[
+                #[cfg(debug_assertions)]
+                "VK_LAYER_KHRONOS_validation",
+            ])
+            .with_extensions(&[
+                ash::extensions::khr::GetPhysicalDeviceProperties2::name(),
+                #[cfg(debug_assertions)]
+                ash::extensions::ext::DebugUtils::name(),
+            ])
             .build()?;
 
         let surface = Surface::new(&window, &instance)?;
