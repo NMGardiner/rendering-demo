@@ -126,12 +126,10 @@ impl Instance {
 
         // If there's a window attached, add the required window extensions.
         if let Some(window_handle) = window {
-            builder.extensions.append(
+            builder.extensions.extend(
                 ash_window::enumerate_required_extensions(window_handle)?
                     .iter()
-                    .map(|&extension_name| unsafe { CStr::from_ptr(extension_name) })
-                    .collect::<Vec<_>>()
-                    .as_mut(),
+                    .map(|&extension_name| unsafe { CStr::from_ptr(extension_name) }),
             )
         }
 
