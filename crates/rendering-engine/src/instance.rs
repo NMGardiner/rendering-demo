@@ -10,7 +10,6 @@ use raw_window_handle::HasRawWindowHandle;
 pub struct InstanceBuilder<'a> {
     application_name: String,
     application_version: u32,
-    window_handle: Option<&'a dyn HasRawWindowHandle>,
     layers: Vec<CString>,
     extensions: Vec<&'a CStr>,
 }
@@ -25,13 +24,6 @@ impl<'a> InstanceBuilder<'a> {
     /// Set the version of the application.
     pub fn application_version(mut self, major: u32, minor: u32, patch: u32) -> Self {
         self.application_version = ash::vk::make_api_version(0, major, minor, patch);
-        self
-    }
-
-    /// Bind a window handle to the renderer instance. The necessary extensions will be enabled - do not enable
-    /// them manually.
-    pub fn window_handle(mut self, window_handle: &'a dyn HasRawWindowHandle) -> Self {
-        self.window_handle = Some(window_handle);
         self
     }
 
@@ -54,8 +46,11 @@ impl<'a> InstanceBuilder<'a> {
     /// Build the renderer instance.
     ///
     /// See [`Instance::new`] for details.
-    pub fn build(self) -> Result<Instance, Box<dyn Error>> {
-        Instance::new(self)
+    pub fn build(
+        self,
+        window: Option<&dyn HasRawWindowHandle>,
+    ) -> Result<Instance, Box<dyn Error>> {
+        Instance::new(self, window)
     }
 }
 
@@ -64,7 +59,6 @@ impl<'a> Default for InstanceBuilder<'a> {
         Self {
             application_name: String::from(""),
             application_version: ash::vk::make_api_version(0, 1, 0, 0),
-            window_handle: None,
             layers: vec![],
             extensions: vec![],
         }
@@ -86,14 +80,18 @@ impl Instance {
         InstanceBuilder::default()
     }
 
-    /// Create a new renderer instance from the given builder's parameters.
+    /// Create a new renderer instance from the given builder's parameters. If a window handle is given,
+    /// the necessary extensions will be enabled automatically - do not enable them manually.
     ///
     /// # Errors
     ///
     /// This function can error if `ash` fails to create the entry, instance, or debug messenger,
     /// if `ash` fails to enumerate the supported instance layers/extensions, or if `ash_window`
     /// fails to enumerate the required window extensions.
-    pub fn new(mut builder: InstanceBuilder) -> Result<Self, Box<dyn Error>> {
+    pub fn new(
+        mut builder: InstanceBuilder,
+        window: Option<&dyn HasRawWindowHandle>,
+    ) -> Result<Self, Box<dyn Error>> {
         let entry = unsafe { ash::Entry::load()? };
 
         // Catch any nul bytes in the given application string.
@@ -127,7 +125,7 @@ impl Instance {
             .collect::<Vec<_>>();
 
         // If there's a window attached, add the required window extensions.
-        if let Some(window_handle) = builder.window_handle {
+        if let Some(window_handle) = window {
             builder.extensions.append(
                 ash_window::enumerate_required_extensions(window_handle)?
                     .iter()

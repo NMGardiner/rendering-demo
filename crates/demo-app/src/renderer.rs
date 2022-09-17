@@ -45,7 +45,6 @@ impl Renderer {
         let instance = Instance::builder()
             .application_name("Rendering Demo")
             .application_version(0, 1, 0)
-            .window_handle(&window)
             .with_layers(&[
                 #[cfg(debug_assertions)]
                 "VK_LAYER_KHRONOS_validation",
@@ -55,11 +54,23 @@ impl Renderer {
                 #[cfg(debug_assertions)]
                 ash::extensions::ext::DebugUtils::name(),
             ])
-            .build()?;
+            .build(Some(window))?;
 
         let surface = Surface::new(&window, &instance)?;
 
-        let device = Device::new(&instance, Some(&surface))?;
+        let device = Device::builder()
+            .with_core_features(ash::vk::PhysicalDeviceFeatures::default())
+            .with_extensions(&[ash::extensions::khr::DynamicRendering::name()])
+            .with_extension_feature(
+                &mut ash::vk::PhysicalDeviceDynamicRenderingFeatures::builder()
+                    .dynamic_rendering(true),
+            )
+            .with_extension_feature(
+                &mut ash::vk::PhysicalDeviceDescriptorIndexingFeatures::builder()
+                    .descriptor_binding_partially_bound(true)
+                    .runtime_descriptor_array(true),
+            )
+            .build(&instance, Some(&surface))?;
 
         let swapchain = Swapchain::new(
             (window.inner_size().width, window.inner_size().height),

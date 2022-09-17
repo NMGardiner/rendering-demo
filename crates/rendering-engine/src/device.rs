@@ -9,6 +9,61 @@ use gpu_allocator::vulkan::*;
 
 use crate::*;
 
+/// An object for building devices.
+pub struct DeviceBuilder<'a> {
+    extensions: Vec<&'a CStr>,
+    features: ash::vk::PhysicalDeviceFeatures2Builder<'a>,
+}
+
+impl<'a> DeviceBuilder<'a> {
+    /// Add the given core features to be enabled.
+    /// By default, the following core features are enabled for required engine functionality:
+    /// - None
+    pub fn with_core_features(mut self, features: ash::vk::PhysicalDeviceFeatures) -> Self {
+        self.features = self.features.features(features);
+        self
+    }
+
+    /// Add the given extension names to be enabled.
+    /// By default, the following extensions are enabled for required engine functionality:
+    /// - VK_KHR_synchronization2
+    pub fn with_extensions(mut self, extensions: &'a [&CStr]) -> Self {
+        self.extensions.extend(extensions);
+        self
+    }
+
+    /// Add the given extension feature to be enabled.
+    /// By default, the following features are enabled for required engine functionality:
+    /// - PhysicalDeviceSynchronization2Features::synchronization2
+    pub fn with_extension_feature<T: ash::vk::ExtendsPhysicalDeviceFeatures2>(
+        mut self,
+        feature: &'a mut T,
+    ) -> Self {
+        self.features = self.features.push_next(feature);
+        self
+    }
+
+    /// Build the device.
+    ///
+    /// See [`Device::new`] for details.
+    pub fn build(
+        self,
+        instance: &Instance,
+        surface: Option<&Surface>,
+    ) -> Result<Device, Box<dyn Error>> {
+        Device::new(self, instance, surface)
+    }
+}
+
+impl Default for DeviceBuilder<'static> {
+    fn default() -> Self {
+        Self {
+            extensions: vec![],
+            features: ash::vk::PhysicalDeviceFeatures2::builder(),
+        }
+    }
+}
+
 /// A logical device representing a single GPU within the system.
 pub struct Device {
     device_handle: ash::Device,
@@ -25,49 +80,45 @@ pub struct Device {
 }
 
 impl Device {
-    /// Creates a new logical device if a suitable physical device is found.
+    /// Create a [`DeviceBuilder`] to build a device.
+    pub fn builder() -> DeviceBuilder<'static> {
+        DeviceBuilder::default()
+    }
+
+    /// Creates a new logical device from the given builder's parameters if a suitable physical device is found.
+    /// If a surface is given, the Swapchain extension will be enabled automatically - do not enable it manually.
     /// Also checks for presentation support if a surface is given.
     ///
     /// # Errors
     ///
     /// This function will error if `ash` fails to get the available physical devices, if `ash` fails
     /// to create the logical device, or if there are no suitable physical devices present.
-    pub fn new(instance: &Instance, surface: Option<&Surface>) -> Result<Self, Box<dyn Error>> {
-        let mut required_extensions = vec![
-            ash::extensions::khr::DynamicRendering::name(),
-            ash::extensions::khr::Synchronization2::name(),
-        ];
+    pub fn new(
+        builder: DeviceBuilder,
+        instance: &Instance,
+        surface: Option<&Surface>,
+    ) -> Result<Self, Box<dyn Error>> {
+        let mut required_extensions = builder.extensions;
+        let mut required_features = builder.features;
 
         // Only add the swapchain extension if we're rendering to a surface.
         if surface.is_some() {
             required_extensions.push(ash::extensions::khr::Swapchain::name());
         }
 
+        // Add extensions required by the engine.
+        required_extensions.push(ash::extensions::khr::Synchronization2::name());
+
+        // Add features required by the engine.
+        let mut synchronization2_features =
+            ash::vk::PhysicalDeviceSynchronization2Features::builder().synchronization2(true);
+        required_features = required_features.push_next(&mut synchronization2_features);
+
         // The DeviceCreateInfo needs the extension names as a *const c_char slice.
         let enabled_extensions = required_extensions
             .iter()
             .map(|extension| extension.as_ptr())
             .collect::<Vec<_>>();
-
-        let core_features = ash::vk::PhysicalDeviceFeatures::default();
-
-        let mut dynamic_rendering_features =
-            ash::vk::PhysicalDeviceDynamicRenderingFeaturesKHR::builder().dynamic_rendering(true);
-
-        let mut synchronization2_features =
-            ash::vk::PhysicalDeviceSynchronization2Features::builder().synchronization2(true);
-
-        let mut descriptor_indexing_features =
-            ash::vk::PhysicalDeviceDescriptorIndexingFeatures::builder()
-                .descriptor_binding_partially_bound(true)
-                .runtime_descriptor_array(true);
-
-        let mut required_features = ash::vk::PhysicalDeviceFeatures2::builder()
-            .push_next(&mut dynamic_rendering_features)
-            .push_next(&mut synchronization2_features)
-            .push_next(&mut descriptor_indexing_features)
-            .features(core_features)
-            .build();
 
         let physical_devices = unsafe { instance.enumerate_physical_devices()? };
 
