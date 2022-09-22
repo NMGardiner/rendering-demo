@@ -15,6 +15,8 @@ use rendering_engine::*;
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 pub struct Renderer {
+    cursor_in_window: bool,
+
     camera: Camera,
 
     window_resize_flag: bool,
@@ -209,6 +211,7 @@ impl Renderer {
         camera.set_position(0.0, 0.0, 2.0);
 
         Ok(Renderer {
+            cursor_in_window: false,
             camera,
             should_render_flag: true,
             window_resize_flag: false,
@@ -253,35 +256,64 @@ impl Renderer {
                     }
                 }
                 WindowEvent::KeyboardInput { input, .. } => {
-                    if let winit::event::KeyboardInput {
-                        state: winit::event::ElementState::Pressed,
-                        virtual_keycode: Some(keycode),
-                        ..
-                    } = input
-                    {
-                        match keycode {
-                            winit::event::VirtualKeyCode::W => {
-                                self.camera.translate(0.0, 0.0, 0.1);
+                    if self.camera.enabled() {
+                        if let winit::event::KeyboardInput {
+                            state: winit::event::ElementState::Pressed,
+                            virtual_keycode: Some(keycode),
+                            ..
+                        } = input
+                        {
+                            match keycode {
+                                winit::event::VirtualKeyCode::W => {
+                                    self.camera.translate(0.0, 0.0, 0.1);
+                                }
+                                winit::event::VirtualKeyCode::A => {
+                                    self.camera.translate(-0.1, 0.0, 0.0);
+                                }
+                                winit::event::VirtualKeyCode::S => {
+                                    self.camera.translate(0.0, 0.0, -0.1);
+                                }
+                                winit::event::VirtualKeyCode::D => {
+                                    self.camera.translate(0.1, 0.0, 0.0);
+                                }
+                                winit::event::VirtualKeyCode::Escape => {
+                                    self.camera.set_enabled(false);
+                                    window.set_cursor_visible(true);
+                                    window.set_cursor_grab(winit::window::CursorGrabMode::None)?;
+                                }
+                                _ => {}
                             }
-                            winit::event::VirtualKeyCode::A => {
-                                self.camera.translate(-0.1, 0.0, 0.0);
-                            }
-                            winit::event::VirtualKeyCode::S => {
-                                self.camera.translate(0.0, 0.0, -0.1);
-                            }
-                            winit::event::VirtualKeyCode::D => {
-                                self.camera.translate(0.1, 0.0, 0.0);
-                            }
-                            _ => {}
                         }
                     }
+                }
+                WindowEvent::CursorEntered { .. } => {
+                    self.cursor_in_window = true;
+                }
+                WindowEvent::CursorLeft { .. } => {
+                    self.cursor_in_window = false;
                 }
                 _ => (),
             },
             Event::DeviceEvent { event, .. } => match event {
                 DeviceEvent::MouseMotion { delta, .. } => {
-                    self.camera
-                        .rotate((delta.0 / 8.0) as f32, (-delta.1 / 8.0) as f32);
+                    if self.camera.enabled() {
+                        self.camera
+                            .rotate((delta.0 / 8.0) as f32, (-delta.1 / 8.0) as f32);
+                    }
+                }
+                DeviceEvent::Button { button, state } => {
+                    if *button == 1
+                        && *state == winit::event::ElementState::Pressed
+                        && self.cursor_in_window
+                    {
+                        self.camera.set_enabled(true);
+
+                        window.set_cursor_visible(false);
+
+                        window
+                            .set_cursor_grab(winit::window::CursorGrabMode::Confined)
+                            .unwrap();
+                    }
                 }
                 _ => (),
             },
@@ -573,6 +605,24 @@ impl Renderer {
         // it's no longer in use.
         self.frames_in_flight[self.frame_index % MAX_FRAMES_IN_FLIGHT]
             .defer_object_deletion(old_swapchain);
+
+        let new_depth_image = Image::new(
+            &self.device,
+            ash::vk::Extent3D::builder()
+                .width(self.swapchain.extent().width)
+                .height(self.swapchain.extent().height)
+                .depth(1)
+                .build(),
+            ash::vk::Format::D32_SFLOAT,
+            ash::vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            ash::vk::ImageAspectFlags::DEPTH,
+            1,
+        )?;
+
+        let old_depth_image = std::mem::replace(&mut self.depth_image, new_depth_image);
+
+        self.frames_in_flight[self.frame_index % MAX_FRAMES_IN_FLIGHT]
+            .defer_object_deletion(old_depth_image);
 
         Ok(())
     }

@@ -7,6 +7,7 @@ pub struct Camera {
     front: glm::Vec3,
     yaw: f32,
     pitch: f32,
+    enabled: bool,
 }
 
 impl Camera {
@@ -16,6 +17,7 @@ impl Camera {
             front: glm::vec3(0.0, 0.0, -1.0),
             yaw: -90.0,
             pitch: 0.0,
+            enabled: false,
         }
     }
 
@@ -50,5 +52,13 @@ impl Camera {
 
     pub fn rotate(&mut self, yaw: f32, pitch: f32) {
         self.set_rotation(self.yaw + yaw, self.pitch + pitch);
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
     }
 }
