@@ -9,6 +9,8 @@ pub struct Vertex {
     pub position: glm::Vec3,
     pub normal: glm::Vec3,
     pub texture_coords: glm::Vec2,
+    pub joint_indices: glm::IVec4,
+    pub joint_weights: glm::Vec4,
 }
 
 pub struct PushConstants {
@@ -33,7 +35,7 @@ pub struct MaterialData {
 impl Default for MaterialData {
     fn default() -> Self {
         Self {
-            base_colour_factor: glm::vec4(0.0, 0.0, 0.0, 0.0),
+            base_colour_factor: glm::vec4(1.0, 0.0, 0.0, 1.0),
             base_colour_texture: -1,
             matrough_texture: -1,
             normal_texture: -1,
@@ -132,6 +134,11 @@ impl Mesh {
             materials.push(material_data);
         }
 
+        // Ensure there is a default material if none are included.
+        if materials.is_empty() {
+            materials.push(MaterialData::default());
+        }
+
         for node in document.nodes() {
             let transform_matrix = node.transform().matrix();
             let transform_matrix: &[f32] = unsafe {
@@ -157,6 +164,8 @@ impl Mesh {
                     let mut positions: Vec<glm::Vec3> = vec![];
                     let mut normals: Vec<glm::Vec3> = vec![];
                     let mut texture_coords: Vec<glm::Vec2> = vec![];
+                    let mut joint_indices: Vec<glm::IVec4> = vec![];
+                    let mut joint_weights: Vec<glm::Vec4> = vec![];
 
                     if let Some(primitive_positions) = reader.read_positions() {
                         for primitive_position in primitive_positions {
@@ -166,6 +175,10 @@ impl Mesh {
                             normals.push(glm::Vec3::zeros());
 
                             texture_coords.push(glm::Vec2::zeros());
+
+                            joint_indices.push(glm::vec4(-1, -1, -1, -1));
+
+                            joint_weights.push(glm::vec4(0.0, 0.0, 0.0, 0.0));
                         }
                     }
 
@@ -198,12 +211,74 @@ impl Mesh {
                         }
                     }
 
+                    if let Some(primitive_joint_indices) = reader.read_joints(0) {
+                        match primitive_joint_indices {
+                            gltf::mesh::util::ReadJoints::U8(data) => {
+                                for (index, joint_data) in data.enumerate() {
+                                    joint_indices[index] = glm::vec4(
+                                        joint_data[0] as i32,
+                                        joint_data[1] as i32,
+                                        joint_data[2] as i32,
+                                        joint_data[3] as i32,
+                                    );
+                                }
+                            }
+                            gltf::mesh::util::ReadJoints::U16(data) => {
+                                for (index, joint_data) in data.enumerate() {
+                                    joint_indices[index] = glm::vec4(
+                                        joint_data[0] as i32,
+                                        joint_data[1] as i32,
+                                        joint_data[2] as i32,
+                                        joint_data[3] as i32,
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(primitive_joint_weights) = reader.read_weights(0) {
+                        match primitive_joint_weights {
+                            gltf::mesh::util::ReadWeights::U8(data) => {
+                                for (index, joint_data) in data.enumerate() {
+                                    joint_weights[index] = glm::vec4(
+                                        joint_data[0] as f32,
+                                        joint_data[1] as f32,
+                                        joint_data[2] as f32,
+                                        joint_data[3] as f32,
+                                    );
+                                }
+                            }
+                            gltf::mesh::util::ReadWeights::U16(data) => {
+                                for (index, joint_data) in data.enumerate() {
+                                    joint_weights[index] = glm::vec4(
+                                        joint_data[0] as f32,
+                                        joint_data[1] as f32,
+                                        joint_data[2] as f32,
+                                        joint_data[3] as f32,
+                                    );
+                                }
+                            }
+                            gltf::mesh::util::ReadWeights::F32(data) => {
+                                for (index, joint_data) in data.enumerate() {
+                                    joint_weights[index] = glm::vec4(
+                                        joint_data[0],
+                                        joint_data[1],
+                                        joint_data[2],
+                                        joint_data[3],
+                                    );
+                                }
+                            }
+                        }
+                    }
+
                     vertex_offsets.push((vertices.len(), positions.len()));
                     for (index, position) in positions.iter().enumerate() {
                         vertices.push(Vertex {
                             position: *position,
                             normal: normals[index],
                             texture_coords: texture_coords[index],
+                            joint_indices: joint_indices[index],
+                            joint_weights: joint_weights[index],
                         });
                     }
 

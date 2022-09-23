@@ -61,7 +61,11 @@ impl Renderer {
         let surface = Surface::new(&window, &instance)?;
 
         let device = Device::builder()
-            .with_core_features(ash::vk::PhysicalDeviceFeatures::default())
+            .with_core_features(
+                ash::vk::PhysicalDeviceFeatures::builder()
+                    .fill_mode_non_solid(true)
+                    .build(),
+            )
             .with_extensions(&[ash::extensions::khr::DynamicRendering::name()])
             .with_extension_feature(
                 &mut ash::vk::PhysicalDeviceDynamicRenderingFeatures::builder()
@@ -111,6 +115,7 @@ impl Renderer {
             .shaders(&[&vert_shader, &frag_shader])
             .colour_formats(&[swapchain.surface_format().format])
             .depth_format(depth_image.format())
+            .polygon_mode(ash::vk::PolygonMode::LINE)
             .build(&device)?;
 
         vert_shader.destroy(&device);
@@ -118,9 +123,9 @@ impl Renderer {
 
         let test_mesh = Mesh::new(
             &device,
-            r"./data/assets/fox/Fox.gltf",
+            r"./data/assets/SimpleSkin/glTF/SimpleSkin.gltf",
             glm::vec3(0.0, -1.0, 0.0),
-            0.01,
+            1.0,
         )?;
 
         let descriptor_pool_sizes = [
