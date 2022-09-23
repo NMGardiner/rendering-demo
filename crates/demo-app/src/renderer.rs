@@ -301,11 +301,11 @@ impl Renderer {
                             .rotate((delta.0 / 8.0) as f32, (-delta.1 / 8.0) as f32);
                     }
                 }
-                DeviceEvent::Button { button, state } => {
-                    if *button == 1
-                        && *state == winit::event::ElementState::Pressed
-                        && self.cursor_in_window
-                    {
+                DeviceEvent::Button {
+                    button: 1,
+                    state: winit::event::ElementState::Pressed,
+                } => {
+                    if self.cursor_in_window {
                         self.camera.set_enabled(true);
 
                         window.set_cursor_visible(false);
