@@ -165,7 +165,10 @@ impl Renderer {
         let buffer_info = ash::vk::DescriptorBufferInfo::builder()
             .buffer(*material_buffer.handle())
             .offset(0)
-            .range((std::mem::size_of::<MaterialData>() * test_mesh.materials.len()) as u64);
+            .range(
+                (std::mem::size_of::<crate::mesh::MaterialData>() * test_mesh.materials.len())
+                    as u64,
+            );
 
         let global_descriptor_write = ash::vk::WriteDescriptorSet::builder()
             .dst_binding(0)

@@ -19,6 +19,9 @@ pub use instance::*;
 mod pipeline;
 pub use pipeline::*;
 
+mod scene;
+pub use scene::*;
+
 mod shader;
 pub use shader::*;
 
