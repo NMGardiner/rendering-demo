@@ -9,7 +9,6 @@ use nalgebra_glm as glm;
 
 use crate::camera::*;
 
-use crate::mesh::*;
 use rendering_engine::*;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
@@ -32,7 +31,7 @@ pub struct Renderer {
     global_descriptor_set: ash::vk::DescriptorSet,
     texture_descriptor_set: ash::vk::DescriptorSet,
 
-    test_mesh: Mesh,
+    test_mesh: Scene,
     pipeline: Pipeline,
     depth_image: Image,
     frames_in_flight: Vec<FrameResources>,
@@ -121,12 +120,7 @@ impl Renderer {
         vert_shader.destroy(&device);
         frag_shader.destroy(&device);
 
-        let test_mesh = Mesh::new(
-            &device,
-            r"./data/assets/SimpleSkin/glTF/SimpleSkin.gltf",
-            glm::vec3(0.0, -1.0, 0.0),
-            1.0,
-        )?;
+        let test_mesh = Scene::load(&device, r"./data/assets/SimpleSkin/glTF/SimpleSkin.gltf")?;
 
         let descriptor_pool_sizes = [
             ash::vk::DescriptorPoolSize::builder()
@@ -165,10 +159,7 @@ impl Renderer {
         let buffer_info = ash::vk::DescriptorBufferInfo::builder()
             .buffer(*material_buffer.handle())
             .offset(0)
-            .range(
-                (std::mem::size_of::<crate::mesh::MaterialData>() * test_mesh.materials.len())
-                    as u64,
-            );
+            .range((std::mem::size_of::<MaterialData>() * test_mesh.materials.len()) as u64);
 
         let global_descriptor_write = ash::vk::WriteDescriptorSet::builder()
             .dst_binding(0)

@@ -13,6 +13,10 @@ pub struct Vertex {
     pub joint_weights: glm::Vec4,
 }
 
+pub struct PushConstants {
+    pub matrix: glm::Mat4,
+}
+
 /// Object for storing per-material data including indexes into the texture array.
 pub struct MaterialData {
     pub base_colour_factor: glm::Vec4,
@@ -76,15 +80,25 @@ fn texture_from_image(image: &gltf::image::Data, device: &Device) -> Result<Imag
     )
 }
 
+/// An object representing a glTF scene, with the associated vertex/index buffers, textures, and materials.
 pub struct Scene {
-    root_node_indices: Vec<usize>,
     nodes: Vec<Node>,
+    root_node_indices: Vec<usize>,
+
+    pub vertex_buffer: Buffer,
+    pub index_buffer: Option<Buffer>,
+    pub materials: Vec<MaterialData>,
+    pub textures: Vec<Image>,
 }
 
 impl Scene {
-    pub fn load(device: &Device, path: &str) -> Result<Self, Box<dyn Error>> {
+    // TODO: Does the below comment still apply?
+    /// Load a given glTF file, including the vertex/index buffers, textures, and materials.
+    /// Note: this currently only supports glTF files with a single scene.
+    pub fn load(device: &Device, path: &str) -> Result<Scene, Box<dyn Error>> {
         let (document, buffers, images) = gltf::import(Path::new(path))?;
 
+        let mut scene_nodes: Vec<Node> = vec![];
         let mut scene_vertices: Vec<Vertex> = vec![];
         let mut scene_indices: Vec<u32> = vec![];
         let mut scene_textures: Vec<Image> = vec![];
@@ -140,132 +154,196 @@ impl Scene {
             scene_materials.push(MaterialData::default());
         }
 
-        for node in document.nodes() {
-            let transform_matrix = node.transform().matrix();
-            let transform_matrix: &[f32] = unsafe {
-                std::slice::from_raw_parts(
-                    transform_matrix.as_ptr().cast(),
-                    transform_matrix.len() * 4,
-                )
-            };
+        let mut root_node_indices: Vec<usize> = vec![];
 
-            for child in node.children() {
-                child.index();
-            }
+        for scene in document.scenes() {
+            for node in scene.nodes() {
+                root_node_indices.push(node.index());
 
-            if let Some(mesh) = node.mesh() {
-                let primitives: Vec<Primitive> = mesh
-                    .primitives()
-                    .map(|primitive| {
-                        let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
+                // Load the child nodes first, since they should come before the parent node.
+                for child_node in node.children() {
+                    let mut child_node = Scene::load_node(
+                        &child_node,
+                        &buffers,
+                        &mut scene_vertices,
+                        &mut scene_indices,
+                    );
 
-                        let positions = if let Some(positions) = reader.read_positions() {
-                            positions
-                                .map(|position| glm::make_vec3(&position))
-                                .collect()
-                        } else {
-                            vec![]
-                        };
+                    // Assign the parent.
+                    child_node.parent_index = Some(node.index());
 
-                        let normals = if let Some(normals) = reader.read_normals() {
-                            normals.map(|normal| glm::make_vec3(&normal)).collect()
-                        } else {
-                            vec![]
-                        };
+                    scene_nodes.push(child_node);
+                }
 
-                        let tex_coords = if let Some(tex_coords) = reader.read_tex_coords(0) {
-                            tex_coords
-                                .into_f32()
-                                .map(|coords| glm::vec2(coords[0], coords[1]))
-                                .collect()
-                        } else {
-                            vec![]
-                        };
+                // Load the node once all the children have been loaded.
+                let parent_node =
+                    Scene::load_node(&node, &buffers, &mut scene_vertices, &mut scene_indices);
 
-                        let joint_indices = if let Some(joint_indices) = reader.read_joints(0) {
-                            joint_indices
-                                .into_u16()
-                                .map(|indices| {
-                                    glm::vec4(
-                                        indices[0] as u32,
-                                        indices[1] as u32,
-                                        indices[2] as u32,
-                                        indices[3] as u32,
-                                    )
-                                })
-                                .collect()
-                        } else {
-                            vec![]
-                        };
-
-                        let joint_weights = if let Some(joint_weights) = reader.read_weights(0) {
-                            joint_weights
-                                .into_f32()
-                                .map(|weights| {
-                                    glm::vec4(weights[0], weights[1], weights[2], weights[3])
-                                })
-                                .collect()
-                        } else {
-                            vec![]
-                        };
-
-                        let vertices: Vec<Vertex> = positions
-                            .iter()
-                            .enumerate()
-                            .map(|(index, position)| Vertex {
-                                position: *position,
-                                normal: if normals.is_empty() {
-                                    glm::Vec3::zeros()
-                                } else {
-                                    normals[index]
-                                },
-                                texture_coords: *tex_coords
-                                    .get(index)
-                                    .unwrap_or(&glm::Vec2::zeros()),
-                                joint_indices: *joint_indices
-                                    .get(index)
-                                    .unwrap_or(&glm::vec4(0, 0, 0, 0)),
-                                joint_weights: *joint_weights
-                                    .get(index)
-                                    .unwrap_or(&glm::Vec4::zeros()),
-                            })
-                            .collect();
-
-                        let indices = if let Some(indices) = reader.read_indices() {
-                            indices.into_u32().collect()
-                        } else {
-                            vec![]
-                        };
-
-                        let primitive = Primitive {
-                            first_index: scene_indices.len(),
-                            index_count: indices.len(),
-                            material_index: primitive.material().index(),
-                        };
-
-                        scene_vertices.extend(vertices);
-                        scene_indices.extend(indices);
-
-                        primitive
-                    })
-                    .collect();
+                scene_nodes.push(parent_node);
             }
         }
 
+        let vertex_buffer = Buffer::new_with_data(
+            device,
+            ash::vk::BufferUsageFlags::VERTEX_BUFFER,
+            &scene_vertices,
+        )?;
+
+        let index_buffer = if scene_indices.is_empty() {
+            None
+        } else {
+            Some(Buffer::new_with_data(
+                device,
+                ash::vk::BufferUsageFlags::INDEX_BUFFER,
+                &scene_indices,
+            )?)
+        };
+
         Ok(Self {
-            root_node_indices: vec![],
-            nodes: vec![],
+            nodes: scene_nodes,
+            root_node_indices,
+            vertex_buffer,
+            index_buffer,
+            materials: scene_materials,
+            textures: scene_textures,
         })
     }
 
+    fn load_node(
+        gltf_node: &gltf::Node,
+        buffers: &[gltf::buffer::Data],
+        scene_vertices: &mut Vec<Vertex>,
+        scene_indices: &mut Vec<u32>,
+    ) -> Node {
+        let mut node = Node {
+            child_indices: gltf_node.children().map(|child| child.index()).collect(),
+            ..Default::default()
+        };
+
+        let transform_matrix = gltf_node.transform().matrix();
+        node.matrix = glm::make_mat4(unsafe {
+            std::slice::from_raw_parts(transform_matrix.as_ptr().cast(), transform_matrix.len() * 4)
+        });
+
+        node.mesh = if let Some(mesh) = gltf_node.mesh() {
+            let primitives: Vec<Primitive> = mesh
+                .primitives()
+                .map(|primitive| {
+                    let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
+
+                    let positions = if let Some(positions) = reader.read_positions() {
+                        positions
+                            .map(|position| glm::make_vec3(&position))
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+
+                    let normals = if let Some(normals) = reader.read_normals() {
+                        normals.map(|normal| glm::make_vec3(&normal)).collect()
+                    } else {
+                        vec![]
+                    };
+
+                    let tex_coords = if let Some(tex_coords) = reader.read_tex_coords(0) {
+                        tex_coords
+                            .into_f32()
+                            .map(|coords| glm::make_vec2(coords.as_slice()))
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+
+                    let joint_indices = if let Some(joint_indices) = reader.read_joints(0) {
+                        joint_indices
+                            .into_u16()
+                            .map(|indices| {
+                                glm::make_vec4(unsafe {
+                                    std::slice::from_raw_parts(
+                                        indices.as_slice().as_ptr() as *const u32,
+                                        indices.as_slice().len(),
+                                    )
+                                })
+                            })
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+
+                    let joint_weights = if let Some(joint_weights) = reader.read_weights(0) {
+                        joint_weights
+                            .into_f32()
+                            .map(|weights| glm::make_vec4(weights.as_slice()))
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+
+                    let vertices: Vec<Vertex> = positions
+                        .iter()
+                        .enumerate()
+                        .map(|(index, position)| Vertex {
+                            position: *position,
+                            normal: if normals.is_empty() {
+                                glm::Vec3::zeros()
+                            } else {
+                                normals[index]
+                            },
+                            texture_coords: *tex_coords.get(index).unwrap_or(&glm::Vec2::zeros()),
+                            joint_indices: *joint_indices
+                                .get(index)
+                                .unwrap_or(&glm::vec4(0, 0, 0, 0)),
+                            joint_weights: *joint_weights.get(index).unwrap_or(&glm::Vec4::zeros()),
+                        })
+                        .collect();
+
+                    let indices = if let Some(read_indices) = reader.read_indices() {
+                        read_indices
+                            .into_u32()
+                            .map(|index| index + scene_vertices.len() as u32)
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+
+                    let primitive = Primitive {
+                        first_index: scene_indices.len(),
+                        index_count: indices.len(),
+                        material_index: primitive.material().index(),
+                    };
+
+                    scene_vertices.extend(vertices);
+                    scene_indices.extend(indices);
+
+                    primitive
+                })
+                .collect();
+
+            Some(Mesh { primitives })
+        } else {
+            None
+        };
+
+        node
+    }
+
+    /// Draw all nodes in the scene.
     pub fn draw(
         &self,
         device: &Device,
         command_buffer: &ash::vk::CommandBuffer,
         pipeline_layout: &ash::vk::PipelineLayout,
+        pv_matrix: glm::Mat4,
     ) {
+        // Draw the root nodes.
         for root_node_index in self.root_node_indices.iter() {
-            self.draw_node(*root_node_index, device, command_buffer, pipeline_layout);
+            self.draw_node(
+                *root_node_index,
+                device,
+                command_buffer,
+                pipeline_layout,
+                pv_matrix,
+            );
         }
     }
 
@@ -275,27 +353,41 @@ impl Scene {
         device: &Device,
         command_buffer: &ash::vk::CommandBuffer,
         pipeline_layout: &ash::vk::PipelineLayout,
+        pv_matrix: glm::Mat4,
     ) {
-        self.nodes[node_index].draw(self, device, command_buffer, pipeline_layout);
-    }
-}
+        let node = &self.nodes[node_index];
 
-struct Node {
-    child_node_indices: Vec<usize>,
-    matrix: Option<glm::Mat4>,
-    mesh: Option<Mesh>,
-}
-
-impl Node {
-    fn draw(
-        &self,
-        scene: &Scene,
-        device: &Device,
-        command_buffer: &ash::vk::CommandBuffer,
-        pipeline_layout: &ash::vk::PipelineLayout,
-    ) {
-        if let Some(mesh) = &self.mesh {
+        if let Some(mesh) = &node.mesh {
             // Handle the transform matrix & push constants.
+
+            let mut matrix = node.matrix;
+            let mut parent_index: Option<usize> = node.parent_index;
+            while parent_index.is_some() {
+                matrix = self.nodes[parent_index.unwrap()].matrix * matrix;
+
+                parent_index = self.nodes[parent_index.unwrap()].parent_index;
+            }
+
+            let push_constants = crate::PushConstants {
+                matrix: pv_matrix * matrix,
+            };
+
+            let push_constants_slice = unsafe {
+                std::slice::from_raw_parts(
+                    &push_constants as *const PushConstants as *const u8,
+                    std::mem::size_of::<PushConstants>() / std::mem::size_of::<u8>(),
+                )
+            };
+
+            unsafe {
+                device.cmd_push_constants(
+                    *command_buffer,
+                    *pipeline_layout,
+                    ash::vk::ShaderStageFlags::VERTEX,
+                    0,
+                    push_constants_slice,
+                );
+            }
 
             for primitive in mesh.primitives.iter() {
                 if primitive.index_count > 0 {
@@ -313,22 +405,47 @@ impl Node {
             }
         }
 
-        for child_node_index in self.child_node_indices.iter() {
-            scene.draw_node(*child_node_index, device, command_buffer, pipeline_layout);
+        for child_node_index in node.child_indices.iter() {
+            self.draw_node(
+                *child_node_index,
+                device,
+                command_buffer,
+                pipeline_layout,
+                pv_matrix,
+            );
         }
     }
+}
+
+impl Destroy for Scene {
+    fn destroy(&mut self, device: &Device) {
+        for texture in self.textures.iter_mut() {
+            texture.destroy(device);
+        }
+
+        self.vertex_buffer.destroy(device);
+
+        if let Some(index_buffer) = &mut self.index_buffer {
+            index_buffer.destroy(device);
+        }
+    }
+}
+
+#[derive(Default)]
+struct Node {
+    parent_index: Option<usize>,
+    child_indices: Vec<usize>,
+
+    matrix: glm::Mat4,
+    mesh: Option<Mesh>,
 }
 
 struct Mesh {
     primitives: Vec<Primitive>,
 }
 
-impl Mesh {}
-
 struct Primitive {
     first_index: usize,
     index_count: usize,
     material_index: Option<usize>,
 }
-
-impl Primitive {}

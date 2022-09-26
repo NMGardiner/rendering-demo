@@ -1,7 +1,5 @@
 mod camera;
 
-mod mesh;
-
 mod renderer;
 use renderer::*;
 
@@ -9,7 +7,7 @@ use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{CursorGrabMode, WindowBuilder},
+    window::WindowBuilder,
 };
 
 fn main() {
