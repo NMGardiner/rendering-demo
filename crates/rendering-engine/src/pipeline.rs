@@ -1,5 +1,7 @@
 use std::error::Error;
 
+use itertools::Itertools;
+
 use crate::*;
 
 /// An object for building graphics pipelines.
@@ -126,14 +128,14 @@ impl Pipeline {
         let mut vertex_attribute_descriptions: Vec<ash::vk::VertexInputAttributeDescription> =
             vec![];
         let mut push_constant_ranges: Vec<ash::vk::PushConstantRange> = vec![];
-        let mut descriptor_set_layouts: Vec<ash::vk::DescriptorSetLayout> = vec![];
+        let mut descriptor_set_bindings: Vec<DescriptorSetBinding> = vec![];
 
         for shader in builder.shaders {
             shader_stage_infos.push(*shader.stage_info());
             vertex_binding_descriptions.extend(shader.binding_descriptions());
             vertex_attribute_descriptions.extend(shader.attribute_descriptions());
             push_constant_ranges.extend(shader.push_constant_ranges());
-            descriptor_set_layouts.extend(shader.descriptor_set_layouts());
+            descriptor_set_bindings.extend(shader.descriptor_set_bindings());
         }
 
         let input_state_info = ash::vk::PipelineVertexInputStateCreateInfo::builder()
@@ -184,6 +186,37 @@ impl Pipeline {
         let colour_blend_state_info = ash::vk::PipelineColorBlendStateCreateInfo::builder()
             .logic_op_enable(false)
             .attachments(std::slice::from_ref(&blend_attachment_state));
+
+        descriptor_set_bindings.sort_unstable_by(|a, b| a.set.partial_cmp(&b.set).unwrap());
+
+        let mut descriptor_set_layouts = vec![];
+        for (_, bindings) in &descriptor_set_bindings
+            .iter()
+            .group_by(|binding| binding.set)
+        {
+            let mut binding_flags = vec![];
+            let mut set_layout_bindings = vec![];
+
+            for binding in bindings {
+                binding_flags.push(binding.binding_flags);
+                set_layout_bindings.push(binding.set_layout_binding);
+            }
+
+            let mut set_layout_binding_flags =
+                ash::vk::DescriptorSetLayoutBindingFlagsCreateInfo::builder()
+                    .binding_flags(&binding_flags);
+
+            let set_layout_info = ash::vk::DescriptorSetLayoutCreateInfo::builder()
+                .push_next(&mut set_layout_binding_flags)
+                .flags(ash::vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
+                .bindings(&set_layout_bindings);
+
+            descriptor_set_layouts.push(unsafe {
+                device
+                    .create_descriptor_set_layout(&set_layout_info, None)
+                    .unwrap()
+            });
+        }
 
         let pipeline_layout_info = ash::vk::PipelineLayoutCreateInfo::builder()
             .push_constant_ranges(&push_constant_ranges)

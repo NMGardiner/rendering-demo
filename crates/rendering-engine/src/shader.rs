@@ -8,6 +8,13 @@ use ash::vk::Format as AshFormat;
 use ash::vk::ShaderStageFlags as AshShaderStageFlags;
 use spirv_reflect::types::*;
 
+#[derive(Copy, Clone)]
+pub struct DescriptorSetBinding {
+    pub set: u32,
+    pub set_layout_binding: ash::vk::DescriptorSetLayoutBinding,
+    pub binding_flags: ash::vk::DescriptorBindingFlags,
+}
+
 /// A wrapper for a shader, storing information generated from shader reflection.
 pub struct Shader {
     module: ash::vk::ShaderModule,
@@ -15,7 +22,7 @@ pub struct Shader {
     binding_descriptions: Vec<ash::vk::VertexInputBindingDescription>,
     attribute_descriptions: Vec<ash::vk::VertexInputAttributeDescription>,
     push_constant_ranges: Vec<ash::vk::PushConstantRange>,
-    descriptor_set_layouts: Vec<ash::vk::DescriptorSetLayout>,
+    descriptor_set_bindings: Vec<DescriptorSetBinding>,
 }
 
 impl Shader {
@@ -93,12 +100,9 @@ impl Shader {
             })
             .collect::<Vec<_>>();
 
-        let mut descriptor_set_layouts: Vec<ash::vk::DescriptorSetLayout> = vec![];
+        let mut descriptor_set_bindings: Vec<DescriptorSetBinding> = vec![];
 
         for descriptor_set in reflection_module.enumerate_descriptor_sets(None)? {
-            let mut set_bindings: Vec<ash::vk::DescriptorSetLayoutBinding> = vec![];
-            let mut set_binding_flags: Vec<ash::vk::DescriptorBindingFlags> = vec![];
-
             for set_binding in descriptor_set.bindings {
                 // If the array length isn't specified, give it a default, non-zero value.
                 // This is the situation when using bindless textures.
@@ -108,31 +112,19 @@ impl Shader {
                     (set_binding.count, ash::vk::DescriptorBindingFlags::empty())
                 };
 
-                set_bindings.push(
-                    ash::vk::DescriptorSetLayoutBinding::builder()
-                        .descriptor_type(convert_descriptor_type(set_binding.descriptor_type))
-                        .descriptor_count(descriptor_count)
-                        .binding(set_binding.binding)
-                        .stage_flags(stage_flags)
-                        .build(),
-                );
+                let set_layout_binding = ash::vk::DescriptorSetLayoutBinding::builder()
+                    .descriptor_type(convert_descriptor_type(set_binding.descriptor_type))
+                    .descriptor_count(descriptor_count)
+                    .binding(set_binding.binding)
+                    .stage_flags(stage_flags)
+                    .build();
 
-                set_binding_flags.push(binding_flags);
+                descriptor_set_bindings.push(DescriptorSetBinding {
+                    set: descriptor_set.set,
+                    set_layout_binding,
+                    binding_flags,
+                })
             }
-
-            let mut set_layout_binding_flags =
-                ash::vk::DescriptorSetLayoutBindingFlagsCreateInfo::builder()
-                    .binding_flags(&set_binding_flags);
-
-            let set_layout_info = ash::vk::DescriptorSetLayoutCreateInfo::builder()
-                .push_next(&mut set_layout_binding_flags)
-                .flags(ash::vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
-                .bindings(set_bindings.as_slice());
-
-            let set_layout =
-                unsafe { device.create_descriptor_set_layout(&set_layout_info, None)? };
-
-            descriptor_set_layouts.push(set_layout);
         }
 
         let shader_stage_info = ash::vk::PipelineShaderStageCreateInfo::builder()
@@ -148,7 +140,7 @@ impl Shader {
             binding_descriptions,
             attribute_descriptions,
             push_constant_ranges,
-            descriptor_set_layouts,
+            descriptor_set_bindings,
         })
     }
 
@@ -168,8 +160,8 @@ impl Shader {
         &self.push_constant_ranges
     }
 
-    pub fn descriptor_set_layouts(&self) -> &Vec<ash::vk::DescriptorSetLayout> {
-        &self.descriptor_set_layouts
+    pub fn descriptor_set_bindings(&self) -> &Vec<DescriptorSetBinding> {
+        &self.descriptor_set_bindings
     }
 }
 
