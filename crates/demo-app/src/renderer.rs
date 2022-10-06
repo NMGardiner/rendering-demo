@@ -1,4 +1,10 @@
-use std::{error::Error, path::Path};
+use std::{
+    error::Error,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use slab::Slab;
 
 use winit::{
     event::{DeviceEvent, Event, WindowEvent},
@@ -21,6 +27,7 @@ pub struct Renderer {
     window_resize_flag: bool,
     should_render_flag: bool,
 
+    current_time: f64,
     frame_index: usize,
 
     material_buffer: Buffer,
@@ -32,6 +39,9 @@ pub struct Renderer {
     texture_descriptor_set: ash::vk::DescriptorSet,
 
     test_mesh: Scene,
+
+    textures: Slab<Image>,
+
     pipeline: Pipeline,
     depth_image: Image,
     frames_in_flight: Vec<FrameResources>,
@@ -120,7 +130,15 @@ impl Renderer {
         vert_shader.destroy(&device);
         frag_shader.destroy(&device);
 
-        let test_mesh = Scene::load(&device, r"./data/assets/SimpleSkin/glTF/SimpleSkin.gltf")?;
+        let mut textures = Slab::with_capacity(64);
+
+        let mut test_mesh = Scene::load(
+            &device,
+            r"./data/assets/SimpleSkin/glTF/SimpleSkin.gltf",
+            &mut textures,
+        )?;
+
+        test_mesh.update_joints();
 
         let descriptor_pool_sizes = [
             ash::vk::DescriptorPoolSize::builder()
@@ -181,11 +199,26 @@ impl Renderer {
 
         let sampler = unsafe { device.create_sampler(&sampler_info, None)? };
 
-        if !test_mesh.textures.is_empty() {
-            let image_infos = test_mesh
-                .textures
+        let joint_buffer_info = ash::vk::DescriptorBufferInfo::builder()
+            .buffer(*test_mesh.get_joint_buffer().handle())
+            .offset(0)
+            .range(test_mesh.get_joint_buffer().allocation().size());
+
+        let joint_buffer_write = ash::vk::WriteDescriptorSet::builder()
+            .dst_binding(1)
+            .descriptor_type(ash::vk::DescriptorType::STORAGE_BUFFER)
+            .dst_set(texture_descriptor_set)
+            .dst_array_element(0)
+            .buffer_info(std::slice::from_ref(&joint_buffer_info));
+
+        unsafe {
+            device.update_descriptor_sets(std::slice::from_ref(&joint_buffer_write), &[]);
+        }
+
+        if !textures.is_empty() {
+            let image_infos = textures
                 .iter()
-                .map(|texture| {
+                .map(|(_, texture)| {
                     ash::vk::DescriptorImageInfo::builder()
                         .image_layout(ash::vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                         .image_view(*texture.view())
@@ -214,6 +247,7 @@ impl Renderer {
             camera,
             should_render_flag: true,
             window_resize_flag: false,
+            current_time: 0.0,
             frame_index: 0,
             material_buffer,
             descriptor_pool,
@@ -221,6 +255,7 @@ impl Renderer {
             texture_descriptor_set,
             sampler,
             test_mesh,
+            textures,
             pipeline,
             depth_image,
             frames_in_flight,
@@ -345,6 +380,17 @@ impl Renderer {
             self.recreate_swapchain(window)?;
             return Ok(());
         }
+
+        let current_time = SystemTime::now().duration_since(UNIX_EPOCH)?;
+        let delta = if self.current_time == 0.0 {
+            0.0
+        } else {
+            current_time.as_secs_f64() - self.current_time
+        };
+
+        self.current_time = current_time.as_secs_f64();
+
+        self.test_mesh.update_animations(delta);
 
         let image_index = acquire_result.unwrap().0;
 
@@ -644,6 +690,10 @@ impl Drop for Renderer {
             self.device.destroy_sampler(self.sampler, None);
             self.device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
+        }
+
+        for (_, texture) in self.textures.iter_mut() {
+            texture.destroy(&self.device);
         }
 
         self.pipeline.destroy(&self.device);

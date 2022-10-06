@@ -12,7 +12,17 @@ layout(push_constant) uniform constants {
     mat4 matrix;
 } push_constants;
 
+layout(set = 1, binding = 1) readonly buffer JointBuffer {
+    mat4 in_joint_matrices[];
+};
+
 void main() {
-    gl_Position = push_constants.matrix * vec4(in_position, 1.0);
+    mat4 skin_matrix = 
+		in_joint_weights.x * in_joint_matrices[in_joint_indices.x] +
+		in_joint_weights.y * in_joint_matrices[in_joint_indices.y] +
+		in_joint_weights.z * in_joint_matrices[in_joint_indices.z] +
+		in_joint_weights.w * in_joint_matrices[in_joint_indices.w];
+
+    gl_Position = push_constants.matrix * skin_matrix * vec4(in_position, 1.0);
     out_texture_coords = in_texture_coords;
 }
